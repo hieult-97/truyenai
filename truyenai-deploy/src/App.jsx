@@ -20,6 +20,62 @@ function LSSet(key, value) {
 }
 
 // ═══════════════════════════════════════════════════════
+// FIREBASE HELPERS — đồng bộ data giữa các thiết bị
+// ═══════════════════════════════════════════════════════
+let _fb = null;
+function initFirebase() {
+  if (_fb) return _fb;
+  const cfg = LS("tai-firebase-config", null);
+  if (!cfg || !cfg.databaseURL) return null;
+  try {
+    if (!window.firebase?.apps?.length) {
+      window.firebase.initializeApp(cfg);
+    }
+    _fb = window.firebase.database();
+    return _fb;
+  } catch(e) { console.error("Firebase init error:", e); return null; }
+}
+
+async function fbGet(path) {
+  const db = initFirebase();
+  if (!db) return null;
+  try {
+    const snap = await db.ref(path).once("value");
+    return snap.val();
+  } catch(e) { console.error("FB get:", e); return null; }
+}
+
+async function fbSet(path, data) {
+  const db = initFirebase();
+  if (!db) return false;
+  try {
+    await db.ref(path).set(data);
+    return true;
+  } catch(e) { console.error("FB set:", e); return false; }
+}
+
+async function fbUpdate(path, data) {
+  const db = initFirebase();
+  if (!db) return false;
+  try {
+    await db.ref(path).update(data);
+    return true;
+  } catch(e) { console.error("FB update:", e); return false; }
+}
+
+// Đọc config chung (bank, apikey) — ưu tiên Firebase, fallback localStorage
+async function getSharedConfig(key, fallback) {
+  const fbVal = await fbGet("config/" + key);
+  if (fbVal !== null) { LSSet("tai-" + key, fbVal); return fbVal; }
+  return LS("tai-" + key, fallback);
+}
+
+async function setSharedConfig(key, value) {
+  LSSet("tai-" + key, value);
+  await fbSet("config/" + key, value);
+}
+
+// ═══════════════════════════════════════════════════════
 // DATA
 // ═══════════════════════════════════════════════════════
 const TAGS_COLORS = {
@@ -60,7 +116,7 @@ const SYSTEM_PROMPT = `Bạn là nhà văn tiểu thuyết tương tác Việt N
 ---END---
 KHÔNG viết lựa chọn chung chung. Mỗi lựa chọn dẫn đến diễn biến khác nhau.`;
 
-// Google Gemini API — miễn phí
+// Groq API — Llama 3.3 70B, cực nhanh, miễn phí
 async function callAI(messages) {
   const clean = messages.filter(m => m.content && !String(m.content).startsWith("⚠") && !String(m.content).startsWith("Lỗi"));
   const fixed = [];
@@ -74,59 +130,48 @@ async function callAI(messages) {
   }
   const trimmed = fixed.length > 12 ? [fixed[0], ...fixed.slice(-11)] : fixed;
 
-  const apiKey = LS("tai-apikey", "");
-  if (!apiKey) return "⚠ Chưa có API Key. Admin vào Admin Panel → nhập Gemini API Key.";
+  let apiKey = LS("tai-apikey", "");
+  if (!apiKey) {
+    try { const fbKey = await fbGet("config/apikey"); if (fbKey) { apiKey = fbKey; LSSet("tai-apikey", fbKey); } } catch(e) {}
+  }
+  if (!apiKey) return "⚠ Chưa có API Key. Admin vào Admin Panel → nhập Groq API Key.";
 
-  const geminiContents = trimmed.map(m => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }]
-  }));
+  // Format OpenAI-compatible cho Groq
+  const groqMsgs = [{ role:"system", content: SYSTEM_PROMPT }, ...trimmed];
 
-  const doCall = async (contents) => {
-    const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + apiKey;
-    const r = await fetch(url, {
+  const doCall = async (msgs) => {
+    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents,
-        generationConfig: { maxOutputTokens: 1024, temperature: 0.9 },
-        safetySettings: [
-          { category:"HARM_CATEGORY_HARASSMENT", threshold:"BLOCK_NONE" },
-          { category:"HARM_CATEGORY_HATE_SPEECH", threshold:"BLOCK_NONE" },
-          { category:"HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold:"BLOCK_NONE" },
-          { category:"HARM_CATEGORY_DANGEROUS_CONTENT", threshold:"BLOCK_NONE" },
-        ],
-      }),
+      headers: { "Content-Type":"application/json", "Authorization":"Bearer " + apiKey },
+      body: JSON.stringify({ model:"llama-3.3-70b-versatile", messages: msgs, max_tokens:1024, temperature:0.9 }),
     });
     if (r.ok) {
       const d = await r.json();
-      const txt = d.candidates?.[0]?.content?.parts?.map(p => p.text).join("\n");
-      if (txt) return txt;
-      console.error("Gemini empty:", JSON.stringify(d).slice(0,500));
-      return null;
+      return d.choices?.[0]?.message?.content || null;
     }
     let errMsg = "";
     try { const eb = await r.json(); errMsg = eb.error?.message || JSON.stringify(eb).slice(0,300); } catch(e) {}
-    console.error("Gemini", r.status, errMsg);
-    if (r.status === 400 && errMsg.includes("API_KEY")) return "⚠ API Key không hợp lệ.";
-    if (r.status === 429) return "⚠ Hết lượt (15/phút). Đợi 1 phút.";
-    if (r.status === 403) return "⚠ API Key bị từ chối.";
+    console.error("Groq", r.status, errMsg);
+    if (r.status === 401) return "⚠ API Key không hợp lệ.";
+    if (r.status === 429) return "⚠ Hết lượt (30/phút). Đợi 1 phút.";
+    if (r.status === 413) return null; // Too large, will retry shorter
     return null;
   };
 
+  // Lần 1: gọi với lịch sử
   try {
-    const r1 = await doCall(geminiContents);
+    const r1 = await doCall(groqMsgs);
     if (r1) return r1;
-  } catch(e) { console.error("Gemini 1:", e); }
+  } catch(e) { console.error("Groq 1:", e); }
 
+  // Lần 2: chỉ message cuối (nếu lịch sử quá dài)
   try {
     const last = trimmed.filter(m => m.role === "user").pop();
-    const r2 = await doCall([{ role:"user", parts:[{text: last?.content || "Viết tiếp."}] }]);
+    const r2 = await doCall([{ role:"system", content:SYSTEM_PROMPT }, { role:"user", content: last?.content || "Viết tiếp." }]);
     if (r2) return r2;
-  } catch(e) { console.error("Gemini 2:", e); }
+  } catch(e) { console.error("Groq 2:", e); }
 
-  return "⚠ Gemini API lỗi. Kiểm tra Console (F12).";
+  return "⚠ Groq API lỗi. Kiểm tra Console (F12).";
 }
 
 function parseResponse(text) {
@@ -333,23 +378,42 @@ function LoginScreen({ onLogin }) {
     if (n >= 5) { setView("admin"); setLogoClicks(0); setErr(""); }
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!email.trim() || !password.trim()) { setErr("Vui lòng nhập email và mật khẩu"); return; }
+    // Thử tìm user ở Firebase trước
+    const emailKey = email.trim().toLowerCase().replace(/[.#$\[\]]/g,"_");
+    let found = null;
+    try {
+      const fbUser = await fbGet("users/" + emailKey);
+      if (fbUser && fbUser.password === password) { found = fbUser; }
+    } catch(e) {}
+    // Fallback: tìm ở localStorage
+    if (!found) {
+      const users = LS("tai-users", []);
+      found = users.find(u => u.email === email.trim().toLowerCase());
+      if (!found) { setErr("Email chưa được đăng ký"); return; }
+      if (found.password !== password) { setErr("Sai mật khẩu"); return; }
+    }
+    found.lastLogin = Date.now();
     const users = LS("tai-users", []);
-    const found = users.find(u => u.email === email.trim().toLowerCase());
-    if (!found) { setErr("Email chưa được đăng ký"); return; }
-    if (found.password !== password) { setErr("Sai mật khẩu"); return; }
-    found.lastLogin = Date.now(); LSSet("tai-users", users);
+    const idx = users.findIndex(u => u.email === found.email);
+    if (idx >= 0) users[idx] = found; else users.push(found);
+    LSSet("tai-users", users);
+    fbSet("users/" + emailKey, found);
     onLogin({ name: found.name, email: found.email, isAdmin: false, xu: found.xu ?? DEFAULT_XU });
   };
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     if (!name.trim() || !email.trim() || !password.trim()) { setErr("Vui lòng nhập đầy đủ thông tin"); return; }
     if (password.length < 4) { setErr("Mật khẩu ít nhất 4 ký tự"); return; }
+    const emailKey = email.trim().toLowerCase().replace(/[.#$\[\]]/g,"_");
+    // Kiểm tra trùng ở Firebase
+    try { const fbUser = await fbGet("users/" + emailKey); if (fbUser) { setErr("Email đã tồn tại"); return; } } catch(e) {}
     const users = LS("tai-users", []);
     if (users.find(u => u.email === email.trim().toLowerCase())) { setErr("Email đã tồn tại"); return; }
     const newUser = { name: name.trim(), email: email.trim().toLowerCase(), password, xu: DEFAULT_XU, createdAt: Date.now(), lastLogin: Date.now(), method: "email" };
     users.push(newUser); LSSet("tai-users", users);
+    fbSet("users/" + emailKey, newUser);
     onLogin({ name: newUser.name, email: newUser.email, isAdmin: false, xu: DEFAULT_XU });
   };
 
@@ -480,14 +544,63 @@ function LoginScreen({ onLogin }) {
 // USER MANAGEMENT (Admin only)
 // ═══════════════════════════════════════════════════════
 function UserManagement() {
-  const [users, setUsers] = useState(LS("tai-users",[]));
+  const [users, setUsers] = useState([]);
   const [search, setSearch] = useState("");
   const [xuEdit, setXuEdit] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  // Load users from Firebase + localStorage
+  useEffect(() => {
+    (async () => {
+      const localUsers = LS("tai-users", []);
+      let allUsers = [...localUsers];
+      try {
+        const fbUsers = await fbGet("users");
+        if (fbUsers) {
+          const fbList = Object.values(fbUsers);
+          // Merge: Firebase users override local
+          for (const fbu of fbList) {
+            const idx = allUsers.findIndex(u => u.email === fbu.email);
+            if (idx >= 0) allUsers[idx] = { ...allUsers[idx], ...fbu };
+            else allUsers.push(fbu);
+          }
+        }
+      } catch(e) {}
+      setUsers(allUsers);
+      setLoading(false);
+    })();
+  }, []);
+
   const filtered = search ? users.filter(u => u.name?.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase())) : users;
-  const updateXu = (email, amt) => { const up = users.map(u => u.email===email ? {...u, xu:Math.max(0,(u.xu||0)+amt)} : u); setUsers(up); LSSet("tai-users",up); };
-  const setXuDirect = (email, val) => { const up = users.map(u => u.email===email ? {...u, xu:Math.max(0,val)} : u); setUsers(up); LSSet("tai-users",up); };
-  const toggleBan = (email) => { const up = users.map(u => u.email===email ? {...u,banned:!u.banned} : u); setUsers(up); LSSet("tai-users",up); };
-  const deleteUser = (email) => { if(!confirm("Xóa user "+email+"?")) return; const up = users.filter(u=>u.email!==email); setUsers(up); LSSet("tai-users",up); };
+  const saveUser = (email, data) => {
+    const emailKey = email.replace(/[.#$\[\]]/g,"_");
+    fbSet("users/" + emailKey, data);
+    const up = users.map(u => u.email === email ? data : u);
+    setUsers(up); LSSet("tai-users", up);
+  };
+  const updateXu = (email, amt) => {
+    const u = users.find(u => u.email === email);
+    if (!u) return;
+    const updated = { ...u, xu: Math.max(0, (u.xu||0) + amt) };
+    saveUser(email, updated);
+  };
+  const setXuDirect = (email, val) => {
+    const u = users.find(u => u.email === email);
+    if (!u) return;
+    saveUser(email, { ...u, xu: Math.max(0, val) });
+  };
+  const toggleBan = (email) => {
+    const u = users.find(u => u.email === email);
+    if (!u) return;
+    saveUser(email, { ...u, banned: !u.banned });
+  };
+  const deleteUser = (email) => {
+    if (!confirm("Xóa user " + email + "?")) return;
+    const emailKey = email.replace(/[.#$\[\]]/g,"_");
+    fbSet("users/" + emailKey, null);
+    const up = users.filter(u => u.email !== email);
+    setUsers(up); LSSet("tai-users", up);
+  };
   const is = { background:C.bg3, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 8px", color:C.text, fontSize:12, outline:"none", width:55 };
   return (
     <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:20,marginBottom:20 }}>
@@ -564,7 +677,7 @@ const BANK_LIST = [
 
 function BankConfig({ inputS }) {
   const [bank, setBank] = useState(LS("tai-bank",{bankId:"970418",accountNo:"",accountName:"",bankName:"BIDV"}));
-  const save = () => { LSSet("tai-bank",bank); alert("✅ Đã lưu thông tin ngân hàng!"); };
+  const save = async () => { LSSet("tai-bank",bank); await fbSet("config/bank",bank); alert("✅ Đã lưu thông tin ngân hàng!"); };
   const upd = (k,v) => setBank(prev=>({...prev,[k]:v}));
   return (
     <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:20,marginBottom:20 }}>
@@ -605,8 +718,31 @@ function AdminPanel() {
   const [newXu, setNewXu] = useState(DEFAULT_XU);
   const [newCount, setNewCount] = useState(1);
   const [showKey, setShowKey] = useState(false);
+  const [fbConfig, setFbConfig] = useState(LS("tai-firebase-config",{apiKey:"",authDomain:"",databaseURL:"",projectId:""}));
+  const [fbStatus, setFbStatus] = useState("");
 
-  const saveApiKey = () => { LSSet("tai-apikey", apiKey); alert("✅ API Key đã lưu!"); };
+  // Load API key from Firebase on mount
+  useEffect(() => {
+    (async () => {
+      const fbKey = await fbGet("config/apikey");
+      if (fbKey && !apiKey) { setApiKey(fbKey); LSSet("tai-apikey", fbKey); }
+    })();
+  }, []);
+
+  const saveApiKey = async () => {
+    LSSet("tai-apikey", apiKey);
+    await fbSet("config/apikey", apiKey);
+    alert("✅ API Key đã lưu!");
+  };
+
+  const saveFirebaseConfig = () => {
+    if (!fbConfig.databaseURL) { alert("Cần nhập Database URL!"); return; }
+    LSSet("tai-firebase-config", fbConfig);
+    _fb = null; // Reset
+    const db = initFirebase();
+    if (db) { setFbStatus("✅ Kết nối Firebase thành công!"); alert("✅ Firebase đã kết nối!"); }
+    else { setFbStatus("❌ Không kết nối được. Kiểm tra lại config."); }
+  };
 
   const generateTokens = () => {
     const arr = [];
@@ -633,28 +769,51 @@ function AdminPanel() {
 
       {/* API Key Config */}
       <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:20,marginBottom:20 }}>
-        <h3 style={{ color:C.text,fontSize:16,fontWeight:700,marginBottom:4 }}>⚙️ Cấu hình API Key (Google Gemini — Miễn phí)</h3>
-        <p style={{ color:C.textMuted,fontSize:11,marginBottom:12 }}>Bắt buộc để AI viết truyện. Gemini miễn phí 15 request/phút.</p>
+        <h3 style={{ color:C.text,fontSize:16,fontWeight:700,marginBottom:4 }}>⚙️ Cấu hình API Key (Groq — Miễn phí, cực nhanh)</h3>
+        <p style={{ color:C.textMuted,fontSize:11,marginBottom:12 }}>Bắt buộc để AI viết truyện. Groq miễn phí 30 request/phút, trả kết quả dưới 1 giây.</p>
         
         <div style={{ background:C.bg3,borderRadius:10,padding:"14px 16px",marginBottom:14,fontSize:12,color:C.textDim,lineHeight:1.8 }}>
-          <div style={{fontWeight:700,color:C.gold,marginBottom:4,fontSize:13}}>📋 Cách lấy API Key (MIỄN PHÍ):</div>
-          <div>1️⃣ Truy cập <span style={{color:C.gold,fontWeight:600}}>aistudio.google.com/apikey</span></div>
-          <div>2️⃣ Đăng nhập bằng tài khoản Google</div>
-          <div>3️⃣ Bấm <span style={{color:C.gold,fontWeight:600}}>Create API Key</span> → chọn project bất kỳ</div>
-          <div>4️⃣ Copy key (bắt đầu bằng <code style={{background:C.accent+"10",padding:"1px 6px",borderRadius:4,color:C.gold}}>AIzaSy...</code>)</div>
+          <div style={{fontWeight:700,color:C.gold,marginBottom:4,fontSize:13}}>📋 Cách lấy API Key (MIỄN PHÍ, 1 phút):</div>
+          <div>1️⃣ Truy cập <span style={{color:C.gold,fontWeight:600}}>console.groq.com/keys</span></div>
+          <div>2️⃣ Đăng nhập bằng Google hoặc GitHub</div>
+          <div>3️⃣ Bấm <span style={{color:C.gold,fontWeight:600}}>Create API Key</span> → đặt tên bất kỳ</div>
+          <div>4️⃣ Copy key (bắt đầu bằng <code style={{background:C.accent+"10",padding:"1px 6px",borderRadius:4,color:C.gold}}>gsk_...</code>)</div>
           <div>5️⃣ Dán vào ô bên dưới → bấm 💾 Lưu</div>
         </div>
 
         <div style={{ display:"flex",gap:8 }}>
-          <input type={showKey?"text":"password"} value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="AIzaSy..." style={{...inputS,flex:1,fontFamily:"monospace",fontSize:12}} />
+          <input type={showKey?"text":"password"} value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="gsk_..." style={{...inputS,flex:1,fontFamily:"monospace",fontSize:12}} />
           <button onClick={()=>setShowKey(!showKey)} style={{...inputS,cursor:"pointer",color:C.textDim,border:`1px solid ${C.border}` }}>{showKey?"🙈":"👁"}</button>
           <button onClick={saveApiKey} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#f5efe3",padding:"8px 18px",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13 }}>💾 Lưu</button>
         </div>
-        {apiKey && <p style={{ color:C.green,fontSize:11,marginTop:8 }}>✅ Gemini API Key đã được cấu hình — Miễn phí!</p>}
+        {apiKey && <p style={{ color:C.green,fontSize:11,marginTop:8 }}>✅ Groq API Key đã cấu hình — Miễn phí, cực nhanh!</p>}
       </div>
 
       {/* Bank Config for QR Payment */}
       <BankConfig inputS={inputS} />
+
+      {/* Firebase Config — đồng bộ dữ liệu */}
+      <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:20,marginBottom:20 }}>
+        <h3 style={{ color:C.text,fontSize:16,fontWeight:700,marginBottom:4 }}>🔥 Firebase (Đồng bộ dữ liệu)</h3>
+        <p style={{ color:C.textMuted,fontSize:11,marginBottom:12 }}>Kết nối Firebase để Admin quản lý user, bank config, API key hoạt động trên mọi thiết bị.</p>
+        <div style={{ background:C.bg3,borderRadius:10,padding:"14px 16px",marginBottom:14,fontSize:12,color:C.textDim,lineHeight:1.8 }}>
+          <div style={{fontWeight:700,color:C.gold,marginBottom:4}}>Cách tạo Firebase (miễn phí):</div>
+          <div>1. Vào <span style={{color:C.gold,fontWeight:600}}>console.firebase.google.com</span></div>
+          <div>2. Bấm "Add project" → đặt tên (VD: truyenai) → tạo</div>
+          <div>3. Vào Realtime Database → Create Database → chọn region → Start in <strong>test mode</strong></div>
+          <div>4. Copy Database URL (dạng: https://truyenai-xxxxx-default-rtdb.firebaseio.com)</div>
+          <div>5. Vào Project Settings (bánh răng) → copy: apiKey, authDomain, projectId</div>
+        </div>
+        <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:12 }}>
+          <input value={fbConfig.databaseURL||""} onChange={e=>setFbConfig({...fbConfig,databaseURL:e.target.value})} placeholder="Database URL: https://xxx-default-rtdb.firebaseio.com" style={{...inputS,fontSize:12,fontFamily:"monospace"}} />
+          <div style={{ display:"flex",gap:8 }}>
+            <input value={fbConfig.apiKey||""} onChange={e=>setFbConfig({...fbConfig,apiKey:e.target.value})} placeholder="API Key (từ Project Settings)" style={{...inputS,flex:1,fontSize:11}} />
+            <input value={fbConfig.projectId||""} onChange={e=>setFbConfig({...fbConfig,projectId:e.target.value})} placeholder="Project ID" style={{...inputS,flex:1,fontSize:11}} />
+          </div>
+        </div>
+        <button onClick={saveFirebaseConfig} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#f5efe3",padding:"8px 18px",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13 }}>🔗 Kết nối Firebase</button>
+        {fbStatus && <p style={{ fontSize:11,marginTop:8,color:fbStatus.includes("✅")?C.green:C.red }}>{fbStatus}</p>}
+      </div>
 
       {/* Google Sign-In Config */}
       <GoogleConfig inputS={inputS} />
@@ -730,7 +889,15 @@ const XU_PACKAGES = [
 function TopUpPage({ xu, onAddXu, user }) {
   const [tab, setTab] = useState("topup");
   const [payingPkg, setPayingPkg] = useState(null);
-  const bank = LS("tai-bank", { bankId:"bidv", accountNo:"", accountName:"" });
+  const [bank, setBank] = useState(LS("tai-bank", { bankId:"", accountNo:"", accountName:"" }));
+
+  // Load bank config from Firebase
+  useEffect(() => {
+    (async () => {
+      const fbBank = await fbGet("config/bank");
+      if (fbBank && fbBank.accountNo) { setBank(fbBank); LSSet("tai-bank", fbBank); }
+    })();
+  }, []);
 
   const tabItems = [
     { id:"profile2", label:"👤 Hồ sơ" },
