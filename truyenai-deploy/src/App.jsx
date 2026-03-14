@@ -60,60 +60,73 @@ const SYSTEM_PROMPT = `Bạn là nhà văn tiểu thuyết tương tác Việt N
 ---END---
 KHÔNG viết lựa chọn chung chung. Mỗi lựa chọn dẫn đến diễn biến khác nhau.`;
 
-const AI_MODEL = "claude-sonnet-4-20250514";
-
+// Google Gemini API — miễn phí
 async function callAI(messages) {
-  // Lọc messages lỗi + đảm bảo format đúng
   const clean = messages.filter(m => m.content && !String(m.content).startsWith("⚠") && !String(m.content).startsWith("Lỗi"));
   const fixed = [];
   for (const m of clean) {
     if (fixed.length === 0 && m.role !== "user") continue;
     if (fixed.length > 0 && fixed[fixed.length-1].role === m.role) continue;
-    fixed.push({role:m.role, content:String(m.content).slice(0, 2000)});
+    fixed.push({ role: m.role, content: String(m.content).slice(0, 2000) });
   }
   if (fixed.length === 0 || fixed[fixed.length-1].role !== "user") {
-    fixed.push({role:"user", content: messages[0]?.content || "Viết chương tiếp theo."});
+    fixed.push({ role:"user", content: messages[0]?.content || "Viết chương tiếp theo." });
   }
   const trimmed = fixed.length > 12 ? [fixed[0], ...fixed.slice(-11)] : fixed;
 
   const apiKey = LS("tai-apikey", "");
-  
-  const doCall = async (msgs, key) => {
-    const headers = { "Content-Type":"application/json" };
-    if (key) { headers["x-api-key"] = key; headers["anthropic-version"] = "2023-06-01"; headers["anthropic-dangerous-direct-browser-access"] = "true"; }
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method:"POST", headers,
-      body: JSON.stringify({ model: AI_MODEL, max_tokens: 1024, system: SYSTEM_PROMPT, messages: msgs }),
+  if (!apiKey) return "⚠ Chưa có API Key. Admin vào Admin Panel → nhập Gemini API Key.";
+
+  const geminiContents = trimmed.map(m => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }]
+  }));
+
+  const doCall = async (contents) => {
+    const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + apiKey;
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents,
+        generationConfig: { maxOutputTokens: 1024, temperature: 0.9 },
+        safetySettings: [
+          { category:"HARM_CATEGORY_HARASSMENT", threshold:"BLOCK_NONE" },
+          { category:"HARM_CATEGORY_HATE_SPEECH", threshold:"BLOCK_NONE" },
+          { category:"HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold:"BLOCK_NONE" },
+          { category:"HARM_CATEGORY_DANGEROUS_CONTENT", threshold:"BLOCK_NONE" },
+        ],
+      }),
     });
     if (r.ok) {
       const d = await r.json();
-      return d.content?.map(c => c.text || "").join("\n") || null;
+      const txt = d.candidates?.[0]?.content?.parts?.map(p => p.text).join("\n");
+      if (txt) return txt;
+      console.error("Gemini empty:", JSON.stringify(d).slice(0,500));
+      return null;
     }
     let errMsg = "";
-    try { const eb = await r.json(); errMsg = eb.error?.message || ""; } catch(e) {}
-    console.error("API", r.status, errMsg);
-    if (r.status === 401) return "⚠ API Key không hợp lệ.";
-    if (r.status === 429) return "⚠ Hết lượt gọi. Đợi vài phút.";
+    try { const eb = await r.json(); errMsg = eb.error?.message || JSON.stringify(eb).slice(0,300); } catch(e) {}
+    console.error("Gemini", r.status, errMsg);
+    if (r.status === 400 && errMsg.includes("API_KEY")) return "⚠ API Key không hợp lệ.";
+    if (r.status === 429) return "⚠ Hết lượt (15/phút). Đợi 1 phút.";
+    if (r.status === 403) return "⚠ API Key bị từ chối.";
     return null;
   };
 
-  if (apiKey) {
-    try {
-      const r1 = await doCall(trimmed, apiKey);
-      if (r1) return r1;
-    } catch(e) { console.error("Call 1:", e); }
-    try {
-      const r2 = await doCall([{role:"user",content:trimmed.filter(m=>m.role==="user").pop()?.content||"Viết tiếp."}], apiKey);
-      if (r2) return r2;
-    } catch(e) { console.error("Call 2:", e); }
-    return "⚠ API lỗi. Kiểm tra Console (F12) để xem chi tiết. Thử bấm ↻ bắt đầu lại.";
-  }
+  try {
+    const r1 = await doCall(geminiContents);
+    if (r1) return r1;
+  } catch(e) { console.error("Gemini 1:", e); }
 
   try {
-    const r = await doCall(trimmed, null);
-    if (r) return r;
-  } catch(e) {}
-  return "⚠ Chưa kết nối AI. Admin cần nhập API Key trong Admin Panel.";
+    const last = trimmed.filter(m => m.role === "user").pop();
+    const r2 = await doCall([{ role:"user", parts:[{text: last?.content || "Viết tiếp."}] }]);
+    if (r2) return r2;
+  } catch(e) { console.error("Gemini 2:", e); }
+
+  return "⚠ Gemini API lỗi. Kiểm tra Console (F12).";
 }
 
 function parseResponse(text) {
@@ -620,25 +633,24 @@ function AdminPanel() {
 
       {/* API Key Config */}
       <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:20,marginBottom:20 }}>
-        <h3 style={{ color:C.text,fontSize:16,fontWeight:700,marginBottom:4 }}>⚙️ Cấu hình API Key (Anthropic Claude)</h3>
-        <p style={{ color:C.textMuted,fontSize:11,marginBottom:12 }}>Bắt buộc khi deploy web riêng. Nếu đang dùng trong Claude.ai thì KHÔNG cần.</p>
+        <h3 style={{ color:C.text,fontSize:16,fontWeight:700,marginBottom:4 }}>⚙️ Cấu hình API Key (Google Gemini — Miễn phí)</h3>
+        <p style={{ color:C.textMuted,fontSize:11,marginBottom:12 }}>Bắt buộc để AI viết truyện. Gemini miễn phí 15 request/phút.</p>
         
-        {/* Step by step guide */}
         <div style={{ background:C.bg3,borderRadius:10,padding:"14px 16px",marginBottom:14,fontSize:12,color:C.textDim,lineHeight:1.8 }}>
-          <div style={{fontWeight:700,color:C.gold,marginBottom:4,fontSize:13}}>📋 Cách lấy API Key (miễn phí thử):</div>
-          <div>1️⃣ Truy cập <span style={{color:C.gold,fontWeight:600}}>console.anthropic.com</span></div>
-          <div>2️⃣ Đăng ký / Đăng nhập tài khoản Anthropic</div>
-          <div>3️⃣ Vào mục <span style={{color:C.gold,fontWeight:600}}>API Keys</span> → bấm <span style={{color:C.gold,fontWeight:600}}>Create Key</span></div>
-          <div>4️⃣ Copy key (bắt đầu bằng <code style={{background:"rgba(200,168,78,0.1)",padding:"1px 6px",borderRadius:4,color:C.gold}}>sk-ant-api03-...</code>)</div>
+          <div style={{fontWeight:700,color:C.gold,marginBottom:4,fontSize:13}}>📋 Cách lấy API Key (MIỄN PHÍ):</div>
+          <div>1️⃣ Truy cập <span style={{color:C.gold,fontWeight:600}}>aistudio.google.com/apikey</span></div>
+          <div>2️⃣ Đăng nhập bằng tài khoản Google</div>
+          <div>3️⃣ Bấm <span style={{color:C.gold,fontWeight:600}}>Create API Key</span> → chọn project bất kỳ</div>
+          <div>4️⃣ Copy key (bắt đầu bằng <code style={{background:C.accent+"10",padding:"1px 6px",borderRadius:4,color:C.gold}}>AIzaSy...</code>)</div>
           <div>5️⃣ Dán vào ô bên dưới → bấm 💾 Lưu</div>
         </div>
 
         <div style={{ display:"flex",gap:8 }}>
-          <input type={showKey?"text":"password"} value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="sk-ant-api03-xxxxxxxxxxxx..." style={{...inputS,flex:1,fontFamily:"monospace",fontSize:12}} />
+          <input type={showKey?"text":"password"} value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="AIzaSy..." style={{...inputS,flex:1,fontFamily:"monospace",fontSize:12}} />
           <button onClick={()=>setShowKey(!showKey)} style={{...inputS,cursor:"pointer",color:C.textDim,border:`1px solid ${C.border}` }}>{showKey?"🙈":"👁"}</button>
           <button onClick={saveApiKey} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#f5efe3",padding:"8px 18px",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13 }}>💾 Lưu</button>
         </div>
-        {apiKey && <p style={{ color:C.green,fontSize:11,marginTop:8 }}>✅ API Key đã được cấu hình</p>}
+        {apiKey && <p style={{ color:C.green,fontSize:11,marginTop:8 }}>✅ Gemini API Key đã được cấu hình — Miễn phí!</p>}
       </div>
 
       {/* Bank Config for QR Payment */}
