@@ -96,6 +96,9 @@ const TAGS_COLORS = {
   "MANGA":"#a0522d","ANIME":"#4a6d8c","DỊ GIỚI":"#6b4c6e",
   "SINH TỒN":"#7a3b3b","ĐÔ THỊ":"#4a5568","TRINH THÁM":"#8b7355",
   "KHOA HỌC":"#4a6d6d","LỊCH SỬ":"#8b6914","MẠT THẾ":"#6b3a3a",
+  "HỆ THỐNG":"#6b5b3d","TRỌNG SINH":"#4a6741","XUYÊN KHÔNG":"#6b4c6e",
+  "NGÔN TÌNH":"#8b5e5e","KIẾM HIỆP":"#7a6b58","VÕ HIỆP":"#6b5b3d",
+  "GAME":"#4a6d8c","SIÊU NĂNG":"#5c3d6b",
 };
 
 const STORIES = [
@@ -117,7 +120,59 @@ const STORIES = [
   { id:"s16", title:"Tái Sinh Tại Seoul 1988", tags:["ISEKAI","SLICE OF LIFE","ĐÔ THỊ"], desc:"Tỉnh dậy trong cơ thể thiếu niên Hàn Quốc năm 1988. Biết trước 36 năm tương lai — bất động sản, Bitcoin, hay thay đổi lịch sử?", plays:181, likes:53, icon:"🇰🇷" },
   { id:"s17", title:"Quỷ Vương Chuyển Sinh", tags:["DARK FANTASY","HUYỀN HUYỄN"], desc:"Từng là Quỷ Vương hủy diệt thế giới. Chết rồi chuyển sinh thành đứa trẻ mồ côi trong chính thế giới bạn tàn phá. Người dân vẫn thờ di ảnh Quỷ Vương.", plays:155, likes:49, icon:"👿" },
   { id:"s18", title:"Đầu Bếp Bí Ẩn Dị Giới", tags:["ISEKAI","SLICE OF LIFE","FANTASY"], desc:"Kỹ năng duy nhất khi chuyển sinh: Nấu Ăn Cấp SSS. Trong thế giới nơi thịt quái vật ngon hơn gà rán, bạn mở nhà hàng giữa rừng quái.", plays:170, likes:52, icon:"🍳" },
+  // ═══ 50 TRUYỆN MỚI ═══
+  { id:"s19", title:"Phàm Nhân Tu Tiên — Hàn Lập Truyền Kỳ", tags:["TIÊN HIỆP"], desc:"Không linh căn thiên tài, không gia thế hiển hách. Chỉ là phàm nhân bình thường bước vào tu tiên giới. Nhưng cẩn thận, kiên nhẫn và một chút may mắn có thể thay đổi vận mệnh.", plays:245, likes:78, icon:"🧘" },
+  { id:"s20", title:"Già Xà Thành Tiên", tags:["TIÊN HIỆP","FANTASY"], desc:"Bạn là một con rắn già trong rừng sâu, vô tình nuốt phải nhân đan. Khai linh trí, bắt đầu tu luyện — xà hóa rồng, cần trải cửu biến, mỗi biến một sinh tử.", plays:198, likes:62, icon:"🐍" },
+  { id:"s21", title:"Gia Tộc Tu Tiên Vạn Năm", tags:["TIÊN HIỆP","XÂY DỰNG"], desc:"Mang theo hệ thống dưỡng thành gia tộc, bạn xuyên qua tu hành thế giới. Không phải một mình chiến đấu — mà xây dựng thế gia vạn năm bất hủ.", plays:176, likes:55, icon:"🏯" },
+  { id:"s22", title:"Tiên Nghịch — Vương Lâm Truyện", tags:["TIÊN HIỆP"], desc:"Con nhà thợ mộc tình cờ nhặt được hạt châu nghịch thiên. Từ Luyện Khí đến Hóa Thần, mỗi bước là máu và nước mắt — thuận ta thì sống, nghịch ta thì chết.", plays:231, likes:74, icon:"💎" },
+  { id:"s23", title:"Ngã Dục Phong Thiên — Ta Muốn Phong Thiên", tags:["HUYỀN HUYỄN","TIÊN HIỆP"], desc:"Mười vạn năm trước, Bát Đại Tiên Vương phong ấn Thiên Môn. Nay phong ấn lung lay, yêu ma trỗi dậy. Bạn là đệ tử nhỏ nhất Thiên Kiếm Tông, nhưng trong người ẩn chứa huyết mạch Tiên Vương.", plays:203, likes:65, icon:"⛰" },
+  { id:"s24", title:"Đồ Đệ Của Ta Đều Là Trùm Phản Diện", tags:["HUYỀN HUYỄN","HỆ THỐNG"], desc:"Bạn là lão sư vô danh thu nhận đệ tử. Hệ thống thông báo: mỗi đệ tử bạn dạy đều sẽ trở thành phản diện cuối cùng. Bạn chọn cách nào — dạy họ thành thiện hay cùng họ xưng bá?", plays:188, likes:61, icon:"📜" },
+  { id:"s25", title:"Đỉnh Cấp Khí Vận Tu Luyện Ngàn Năm", tags:["TIÊN HIỆP","HỆ THỐNG"], desc:"Có khí vận đỉnh cấp nhưng bạn chọn lặng lẽ tu luyện, không tranh đấu. Ngàn năm sau, khi thế giới cần bạn — bạn đã là tồn tại không ai dám chạm đến.", plays:215, likes:68, icon:"🌙" },
+  { id:"s26", title:"Thần Đạo Đan Tôn", tags:["HUYỀN HUYỄN","TIÊN HIỆP"], desc:"Đan đế vang danh thiên hạ trùng sinh vào thiếu niên yếu đuối. Kiếp trước bạn luyện đan cho cả thế giới — kiếp này bạn luyện đan cho chính mình.", plays:192, likes:60, icon:"🧪" },
+  { id:"s27", title:"Vô Địch Từ Thêm Điểm Bắt Đầu", tags:["HUYỀN HUYỄN","HỆ THỐNG","ISEKAI"], desc:"Xuyên qua dị giới, mỗi lần giết quái rơi EXP và item ngẫu nhiên. Đánh con lợn rừng cũng có thể rơi Thiên Phú Thần Thông — hệ thống thêm điểm bá đạo!", plays:178, likes:57, icon:"✨" },
+  { id:"s28", title:"Solo Leveling — Thợ Săn Yếu Nhất", tags:["FANTASY","MANHWA"], desc:"Rank E — thợ săn yếu nhất nhân loại. Nhưng sau khi suýt chết trong Cổng Kép, bạn nhận được quyền năng mà không ai khác có: Hệ Thống Level Up một mình.", plays:267, likes:89, icon:"🗡" },
+  { id:"s29", title:"Vũ Thần — Thương Thiên Bạch Hạc", tags:["HUYỀN HUYỄN"], desc:"Lục thiếu gia bị chê cười vì không thể tu luyện. Nhưng trong cơ thể ẩn chứa huyết mạch Vũ Thần — chỉ cần giác tỉnh, thiên hạ đệ nhất không phải giấc mơ.", plays:184, likes:58, icon:"⚡" },
+  { id:"s30", title:"Niềm Tin Vĩnh Hằng", tags:["HUYỀN HUYỄN"], desc:"Mồ côi từ nhỏ, bị cả làng xua đuổi. Nhưng Bạch Tiểu Thuần không gục ngã — anh bước vào Linh Khê Tông và bắt đầu con đường trở thành cường giả bằng ý chí sắt đá.", plays:196, likes:63, icon:"🌟" },
+  { id:"s31", title:"Mang Vương Giả Vinh Quang Xưng Bá Dị Giới", tags:["ISEKAI","GAME","HỆ THỐNG"], desc:"Xuyên qua mang theo hệ thống Vương Giả Vinh Quang. Đát Kỷ cho Hoàn Hồn, Gia Cát Lượng dạy bày trận — triệu hồi tướng game để chinh phục dị giới!", plays:163, likes:51, icon:"🎮" },
+  { id:"s32", title:"Thiên Tôn Trọng Sinh", tags:["TIÊN HIỆP","TRỌNG SINH"], desc:"Thiên Tôn cường nhất bị phản bội, chết dưới tay đồng đạo. Trọng sinh về 500 năm trước khi mới Luyện Khí tầng 3. Lần này — bạn biết ai là bạn, ai là thù.", plays:221, likes:71, icon:"🔄" },
+  { id:"s33", title:"Ta Ở Tiên Giới Luyện Kim Đan", tags:["TIÊN HIỆP"], desc:"Lão tán tu 60 tuổi, Luyện Khí đỉnh phong. Không thiên tài, không cơ duyên — chỉ có kiên nhẫn và trí tuệ. Liệu phàm nhân có thể Kết Đan thành công?", plays:158, likes:49, icon:"⚗" },
+  { id:"s34", title:"Thục Sơn Kiếm Hiệp Truyện", tags:["TIÊN HIỆP","KIẾM HIỆP"], desc:"Thục Sơn — thánh địa kiếm tu. Ma tộc xâm lăng, kiếm phái suy yếu. Bạn nhặt được thanh Phá Thiên Kiếm từ phế tích — và nghe thấy tiếng gọi của nó.", plays:186, likes:59, icon:"⚔" },
+  { id:"s35", title:"Hắc Thiết Chi Quan — Nhà Tù Không Lối Thoát", tags:["DARK FANTASY","SINH TỒN"], desc:"Tỉnh dậy trong nhà tù dưới lòng đất. 100 tầng, mỗi tầng một thử thách chết người. Lên đến đỉnh = tự do. Rơi xuống đáy = trở thành quái vật.", plays:172, likes:54, icon:"🏰" },
+  { id:"s36", title:"Lão Tổ Cũng Tu Tiên", tags:["TIÊN HIỆP","SLICE OF LIFE"], desc:"Bạn là lão tổ ẩn tu của gia tộc nhỏ. Thế nhân tưởng bạn đã chết 3000 năm trước — nhưng thực ra bạn đang lặng lẽ tu luyện Hợp Thể tại hậu sơn.", plays:189, likes:61, icon:"👴" },
+  { id:"s37", title:"Thần Y Hoàng Hậu", tags:["XUYÊN KHÔNG","LỊCH SỬ","NGÔN TÌNH"], desc:"Bác sĩ hiện đại xuyên không thành hoàng hậu bị phế. Không tu vi, không gia thế — chỉ có kiến thức y học hiện đại. Nhưng trong hậu cung, thuốc độc còn nguy hiểm hơn kiếm.", plays:204, likes:66, icon:"👸" },
+  { id:"s38", title:"Tà Vương Truy Thê", tags:["XUYÊN KHÔNG","NGÔN TÌNH","HUYỀN HUYỄN"], desc:"Xuyên không thành nữ phụ bị ghét nhất tiểu thuyết. Theo kịch bản gốc, bạn sẽ chết ở chương 30. Nhưng tà vương — kẻ lẽ ra phải giết bạn — lại bắt đầu đeo bám.", plays:197, likes:64, icon:"🌹" },
+  { id:"s39", title:"Thiếu Niên Ca Hành — Tuyết Trung Hãn Đao", tags:["KIẾM HIỆP","VÕ HIỆP","LỊCH SỬ"], desc:"Bắc Lương — vùng đất đông lạnh nơi kỵ binh và kiếm khách cùng tồn tại. Bạn là thiếu gia Bắc Lương, giả ngu giả dại suốt 10 năm. Đến lúc rút đao.", plays:213, likes:69, icon:"❄" },
+  { id:"s40", title:"Hoàn Hảo Thế Giới", tags:["HUYỀN HUYỄN","TIÊN HIỆP"], desc:"Trong Hoàn Hảo Thế Giới, kẻ mạnh bay trời độn địa, nhất niệm hủy diệt sơn hà. Bạn là đứa trẻ trong thôn nhỏ, nhưng máu trong người là di sản của Chí Tôn.", plays:224, likes:72, icon:"🌍" },
+  { id:"s41", title:"Già Thiên — Đế Lộ", tags:["HUYỀN HUYỄN"], desc:"Từ đứa bé được nhặt về, đến Hoang Cổ Đại Đế. Con đường dài vạn vạn dặm, mỗi bước là vạn cốt thành sơn. Già Thiên — không phải già trời, mà là che trời!", plays:208, likes:67, icon:"🌌" },
+  { id:"s42", title:"Linh Vực — Huyết Sắc Chi Chiến", tags:["FANTASY","HUYỀN HUYỄN"], desc:"Linh Vực — nơi linh lực quyết định tất cả. Bạn là phế linh căn bị trục xuất khỏi gia tộc. Nhưng trong mơ, có giọng nói bảo: 'Ta sẽ cho ngươi sức mạnh — đổi lại...'", plays:175, likes:55, icon:"🩸" },
+  { id:"s43", title:"Ta Có Một Ngôi Mộ Cổ", tags:["HUYỀN HUYỄN","HỆ THỐNG"], desc:"Xuyên qua mang theo ngôi mộ cổ bí ẩn. Mỗi lần mở một tầng, nhận được di sản của cường giả thượng cổ. Tầng 1: kiếm pháp. Tầng 2: đan phương. Tầng 3: ???", plays:182, likes:58, icon:"🪦" },
+  { id:"s44", title:"Toàn Cầu Giác Tỉnh — Siêu Năng Thời Đại", tags:["ĐÔ THỊ","SIÊU NĂNG"], desc:"Toàn cầu đồng thời giác tỉnh siêu năng lực. Người thì bay, người thì phóng lửa. Bạn giác tỉnh năng lực kỳ lạ: Sao Chép — chạm vào ai, copy năng lực của họ.", plays:199, likes:64, icon:"⚡" },
+  { id:"s45", title:"Đô Thị Cực Phẩm Y Thần", tags:["ĐÔ THỊ","SIÊU NĂNG"], desc:"Thừa kế y thuật cổ truyền thất truyền, bạn xuống núi vào thành phố. Chữa bệnh nan y, đánh kẻ cường quyền — thanh niên quê mùa trở thành truyền thuyết đô thị.", plays:187, likes:60, icon:"🏥" },
+  { id:"s46", title:"Bọc Trong Ánh Sáng Của Bóng Tối", tags:["DARK FANTASY","TRINH THÁM"], desc:"Bạn có thể nhìn thấy 'bóng tối' bám trên người — ai có bóng tối sẽ chết trong 7 ngày. Một ngày, bạn nhìn vào gương và thấy chính mình đen kịt.", plays:168, likes:53, icon:"🌑" },
+  { id:"s47", title:"Trùng Sinh Chi Đế Vương Nghiệp", tags:["TRỌNG SINH","LỊCH SỬ"], desc:"Đại tướng bại trận, bị xử tử. Trùng sinh về 20 năm trước khi mới là cậu bé 15 tuổi. Biết ai sẽ phản, biết khi nào loạn — lần này, ngai vàng sẽ thuộc về bạn.", plays:216, likes:70, icon:"🏛" },
+  { id:"s48", title:"Hồng Hoang — Khai Thiên Chi Tổ", tags:["HUYỀN HUYỄN","TIÊN HIỆP"], desc:"Hồng Hoang sơ khai, thiên địa mới tạo. Bạn là một trong Tam Thiên Đại Đạo hóa hình. Bàn Cổ khai thiên, Nữ Oa tạo người — và bạn, chọn con đường nào?", plays:195, likes:63, icon:"☯" },
+  { id:"s49", title:"Sa Mạc Lầm Than — Survival", tags:["MẠT THẾ","SINH TỒN"], desc:"Thức dậy giữa sa mạc không tên. Không nước, không thức ăn, không ký ức. Chỉ có một chiếc đồng hồ đếm ngược 72:00:00 và dòng chữ: 'Đến được ốc đảo, hoặc chết.'", plays:147, likes:46, icon:"🏜" },
+  { id:"s50", title:"Thiên Đạo Thư Viện", tags:["HUYỀN HUYỄN","HỆ THỐNG"], desc:"Mang theo Thiên Đạo Thư Viện, bạn có thể nhìn thấy khuyết điểm của mọi thứ — con người, công pháp, pháp bảo. Sửa khuyết điểm cho người khác, bạn nhận thưởng từ thiên đạo.", plays:201, likes:65, icon:"📚" },
+  { id:"s51", title:"Nuốt Phệ Tinh Không", tags:["HUYỀN HUYỄN"], desc:"Trái Đất bị quái thú xâm lăng, nhân loại giác tỉnh. Bạn thừa kế ý chí của Hư Không Nuốt Phệ Thú — kẻ đứng trên đỉnh chuỗi thức ăn vũ trụ.", plays:188, likes:60, icon:"🌀" },
+  { id:"s52", title:"Cổ Chân Nhân — Tu Tiên Giả Chân Chính", tags:["TIÊN HIỆP"], desc:"Trong thế giới tu tiên đầy mưu mô, bạn là lão thật thà duy nhất. Không âm mưu, không thủ đoạn — chỉ cần thành tâm tu đạo. Nhưng thiên đạo có thưởng cho người thật thà?", plays:174, likes:56, icon:"🧓" },
+  { id:"s53", title:"Tower of God — Tháp Thần", tags:["FANTASY","MANHWA","SINH TỒN"], desc:"Tháp — nơi mọi ước nguyện thành hiện thực nếu leo đến đỉnh. 134 tầng, mỗi tầng một thử thách. Bạn vào Tháp vì một người — nhưng Tháp muốn bạn ở lại.", plays:217, likes:71, icon:"🗼" },
+  { id:"s54", title:"Mạt Thế Siêu Cấp Hệ Thống", tags:["MẠT THẾ","HỆ THỐNG","SINH TỒN"], desc:"Zombie tràn ngập, văn minh sụp đổ. Nhưng bạn có Hệ Thống: giết zombie nhận điểm, đổi điểm lấy vũ khí, kỹ năng, thuốc. Vấn đề — bạn không phải người duy nhất có hệ thống.", plays:183, likes:58, icon:"🧟" },
+  { id:"s55", title:"Kiếm Lai — Kiếm Đạo Chí Tôn", tags:["KIẾM HIỆP","VÕ HIỆP"], desc:"Thế giới kiếm đạo, mỗi người mang một thanh kiếm, mỗi thanh kiếm một câu chuyện. Bạn là tiểu thư phúc tiểu tử nhặt được thanh kiếm cũ không ai muốn — nhưng nó từng chém Tiên.", plays:206, likes:66, icon:"🗡" },
+  { id:"s56", title:"Linh Khí Phục Hồi — Địa Cầu Biến Thiên", tags:["ĐÔ THỊ","FANTASY","HỆ THỐNG"], desc:"Linh khí phục hồi, Trái Đất tiến hóa. Cây cối khổng lồ, động vật biến dị. Bạn thức dậy thấy con mèo nhà đã to bằng con hổ — và nó đang nhìn bạn như nhìn con mồi.", plays:193, likes:62, icon:"🌿" },
+  { id:"s57", title:"Tam Sinh Tam Thế — Thập Lý Đào Hoa", tags:["XUYÊN KHÔNG","NGÔN TÌNH","TIÊN HIỆP"], desc:"Ba kiếp luân hồi, ba mối tình khác nhau. Kiếp này bạn là thượng tiên Cửu Trùng Thiên. Nhưng lời nguyền xưa vẫn theo — yêu ai, người đó sẽ chết.", plays:209, likes:67, icon:"🌸" },
+  { id:"s58", title:"Luyện Đan Sư Tối Cường", tags:["TIÊN HIỆP","HUYỀN HUYỄN"], desc:"Không thể tu luyện, nhưng bạn có thiên phú luyện đan vô song. Trong tu tiên giới, đan dược đắt hơn sinh mạng. Bạn không cần chiến đấu — vì cả thế giới cần bạn.", plays:179, likes:57, icon:"🔮" },
+  { id:"s59", title:"Đấu La — Lam Ngân Thảo", tags:["HUYỀN HUYỄN","ANIME"], desc:"Thế giới Đấu La, nhưng lần này bạn không phải Đường Tam. Bạn là thợ rèn Hồn Đạo Cụ — tạo ra vũ khí từ Hồn Thú. Trong tay bạn, sắt vụn cũng thành thần binh.", plays:185, likes:59, icon:"🔨" },
+  { id:"s60", title:"Tuyết Ưng Lãnh Chúa", tags:["FANTASY","LỊCH SỬ","XÂY DỰNG"], desc:"Thừa kế lãnh địa băng giá xa xôi — đất nghèo, dân ít, quái thú vây quanh. Nhưng bạn mang kiến thức hiện đại: tưới tiêu, luyện thép, chiến thuật. Xây dựng đế chế từ con số không.", plays:211, likes:68, icon:"🦅" },
+  { id:"s61", title:"Hải Tặc Vương — Grand Line", tags:["FANTASY","ANIME"], desc:"Đại Hải Tặc thời đại. Bạn có con thuyền nhỏ, một giấc mơ lớn, và trái ác quỷ bí ẩn vừa ăn phải. Hải quân truy đuổi, Tứ Hoàng chắn đường — Grand Line chờ đón.", plays:234, likes:76, icon:"🏴‍☠️" },
+  { id:"s62", title:"Cẩu Hệ Tu Tiên — Lặng Lẽ Phát Triển", tags:["TIÊN HIỆP","SLICE OF LIFE"], desc:"Không tranh, không đấu, không xuất đầu lộ diện. Bạn là tu sĩ 'cẩu hệ' — ẩn tu lặng lẽ ngàn năm, âm thầm tích lũy. Khi thế giới biến động — bạn đã ở đỉnh.", plays:190, likes:61, icon:"🐕" },
+  { id:"s63", title:"Trọng Sinh Đô Thị Tu Tiên", tags:["TRỌNG SINH","ĐÔ THỊ","TIÊN HIỆP"], desc:"Đại năng tu tiên trọng sinh về Trái Đất hiện đại, thành sinh viên 18 tuổi. Linh khí loãng, không ai tu tiên — nhưng bạn biết cách. Kiếm tiền, tu luyện, bảo vệ người thân.", plays:202, likes:65, icon:"🏙" },
+  { id:"s64", title:"Thú Ngữ Giả — Người Nói Chuyện Với Thú", tags:["FANTASY","SLICE OF LIFE"], desc:"Bạn hiểu ngôn ngữ của mọi loài thú. Con cáo nói nó từng là hoàng tử. Đàn quạ kể về kho báu cổ đại. Và con rồng trên núi muốn bạn giúp nó một việc...", plays:165, likes:52, icon:"🦊" },
+  { id:"s65", title:"Nhất Niệm Vĩnh Hằng", tags:["HUYỀN HUYỄN","TIÊN HIỆP"], desc:"Một niệm thành vĩnh hằng. Bạch Tiểu Thuần trưởng thành từ thiếu niên ngốc nghếch thành cường giả chấn động trời đất. Đường tu: thành thật, kiên nhẫn, và yêu thương.", plays:218, likes:70, icon:"♾" },
+  { id:"s66", title:"Dị Thường Sinh Vật Kiến Văn Lục", tags:["DARK FANTASY","TRINH THÁM","ĐÔ THỊ"], desc:"Bạn là nhân viên Cục Quản Lý Dị Thường — chuyên xử lý sinh vật siêu nhiên ẩn nấp trong đô thị. Hôm nay có báo cáo: 'Thang máy tầng 13 đưa người đến nơi không tồn tại.'", plays:177, likes:56, icon:"👁" },
+  { id:"s67", title:"Mạt Thế Chi Vương — Đế Quốc Từ Đống Đổ Nát", tags:["MẠT THẾ","XÂY DỰNG","SINH TỒN"], desc:"Mạt thế năm thứ 3. Thành phố tan hoang, nhưng bạn không chỉ sống sót — bạn xây dựng. Từ căn cứ nhỏ đến pháo đài, từ đội quân vài người đến quốc gia mới.", plays:194, likes:62, icon:"🏗" },
+  { id:"s68", title:"Vạn Cổ Đệ Nhất Thần", tags:["HUYỀN HUYỄN"], desc:"Vạn cổ đệ nhất — không phải tự xưng, mà là thiên đạo công nhận. Nhưng trước đó, bạn chỉ là đứa trẻ trong thôn nhỏ, mơ ước lớn nhất là ăn no mỗi ngày.", plays:207, likes:66, icon:"🌠" },
 ];
+
 
 const SYSTEM_PROMPT = `Bạn là nhà văn tiểu thuyết tương tác Việt Nam. Viết tiếng Việt có dấu, dùng "bạn" cho nhân vật chính. Mỗi đoạn 200-300 từ, kết thúc cliffhanger. LUÔN kết thúc bằng 3 lựa chọn cụ thể chi tiết (15+ từ mỗi lựa chọn):
 ---CHOICES---
@@ -345,12 +400,11 @@ function Dropdown({ user, xu, setPage, onLogout }) {
 // ═══════════════════════════════════════════════════════
 // STORY CARD (giống gốc)
 // ═══════════════════════════════════════════════════════
-function StoryCard({ story, onStart, onReset, saved }) {
+function StoryCard({ story, onStart, onReset, saved, onLike, onFav, isLiked, isFav }) {
   return (
     <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",transition:"all .25s",position:"relative" }}
       onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent+"40";e.currentTarget.style.boxShadow="0 4px 20px rgba(90,70,50,0.08)";}}
       onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.boxShadow="";}}>
-      {/* Top accent line */}
       <div style={{ height:2,background:`linear-gradient(90deg,transparent,${C.accent}40,transparent)` }} />
       <div style={{ padding:"16px 18px 0",display:"flex",flexWrap:"wrap",alignItems:"flex-start",gap:4 }}>
         <div style={{ flex:1,display:"flex",flexWrap:"wrap",gap:3 }}>{story.tags.map(t=><Tag key={t} name={t}/>)}</div>
@@ -359,8 +413,10 @@ function StoryCard({ story, onStart, onReset, saved }) {
         <h3 style={{ fontFamily:"'Noto Serif',serif",fontSize:17,fontWeight:700,color:C.ink,marginBottom:10,lineHeight:1.4 }}>{story.title}</h3>
         <p style={{ fontSize:13,color:C.textDim,lineHeight:1.65,display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical",overflow:"hidden",minHeight:52 }}>{story.desc}</p>
       </div>
-      <div style={{ padding:"0 18px 10px",display:"flex",gap:14,fontSize:11,color:C.textMuted }}>
-        <span>▸ {story.plays} lượt</span><span>♡ {story.likes}</span>
+      <div style={{ padding:"0 18px 10px",display:"flex",gap:10,fontSize:11,color:C.textMuted,alignItems:"center" }}>
+        <span>▸ {story.plays} lượt</span>
+        <button onClick={()=>onLike(story.id)} style={{ background:"transparent",border:"none",cursor:"pointer",fontSize:12,color:isLiked?C.red:C.textMuted,padding:0 }}>{isLiked?"♥":"♡"} {story.likes + (isLiked?1:0)}</button>
+        <button onClick={()=>onFav(story.id)} style={{ background:"transparent",border:"none",cursor:"pointer",fontSize:12,color:isFav?"#8b6914":C.textMuted,padding:0,marginLeft:"auto" }}>{isFav?"★ Đã lưu":"☆ Lưu"}</button>
       </div>
       <div style={{ padding:"0 18px 16px",display:"flex",gap:8 }}>
         <button onClick={()=>onStart(story)} style={{ flex:1,background:saved?`linear-gradient(135deg,${C.accent},${C.ink})`:"transparent",border:saved?"none":`1.5px solid ${C.accent}40`,color:saved?"#f5efe3":C.accent,padding:"11px 16px",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'Noto Serif',serif" }}>{saved?"▶ Đọc tiếp":"⚔ Bắt đầu"}</button>
@@ -1331,6 +1387,14 @@ const POWER_SYSTEMS = {
   "KHOA HỌC": { name:"Phi Hành", ranks:["Tân Binh","Kỹ Sư","Chỉ Huy Phó","Chỉ Huy","Đô Đốc","Huyền Thoại"], stats:["Kỹ Thuật","Thể Lực","Trí Tuệ","Lãnh Đạo","Thích Nghi"], currency:"Credit", items:"công nghệ, vũ khí laser, giáp năng lượng" },
   "LỊCH SỬ": { name:"Quan Vị", ranks:["Bình Dân","Binh Sĩ","Tướng Quân","Đại Tướng","Vương","Hoàng Đế","Thiên Tử"], stats:["Võ Lực","Trí Mưu","Chính Trị","Lãnh Đạo","Uy Tín"], currency:"Lượng Vàng", items:"binh khí, ngựa chiến, quân đội" },
   "SLICE OF LIFE": { name:"Cuộc Sống", ranks:["Tân Thủ","Quen Việc","Chuyên Gia","Bậc Thầy","Huyền Thoại"], stats:["Kỹ Năng","Sức Khỏe","Quan Hệ","Tài Chính","Hạnh Phúc"], currency:"Tiền", items:"dụng cụ, nguyên liệu, sách" },
+  "HỆ THỐNG": { name:"Hệ Thống", ranks:["Lv.1","Lv.10","Lv.25","Lv.50","Lv.75","Lv.99","Lv.MAX"], stats:["STR","AGI","INT","VIT","LUK","Điểm Hệ Thống"], currency:"Điểm Kinh Nghiệm", items:"skill book, buff item, random box" },
+  "TRỌNG SINH": { name:"Trọng Sinh", ranks:["Vừa Trọng Sinh","Tích Lũy","Bùng Nổ","Xưng Bá","Đỉnh Phong"], stats:["Ký Ức Tiền Kiếp","Tu Vi","Quan Hệ","Tài Sản","Thiên Mệnh"], currency:"Linh Thạch", items:"bí kíp tiền kiếp, nhân mạch, cơ duyên" },
+  "XUYÊN KHÔNG": { name:"Xuyên Không", ranks:["Vừa Xuyên","Thích Nghi","Nổi Danh","Quyền Quý","Chí Tôn"], stats:["Thích Nghi","Kiến Thức Hiện Đại","Võ Lực","Mưu Trí","Hậu Cung"], currency:"Bạc", items:"kiến thức hiện đại, thuốc, vũ khí" },
+  "KIẾM HIỆP": { name:"Kiếm Đạo", ranks:["Kiếm Đồng","Kiếm Giả","Kiếm Sư","Đại Kiếm Sư","Kiếm Thánh","Kiếm Thần"], stats:["Kiếm Ý","Nội Lực","Khinh Công","Thể Chất","Ngộ Tính"], currency:"Lượng Bạc", items:"kiếm, bí kíp, nội công tâm pháp" },
+  "VÕ HIỆP": { name:"Võ Công", ranks:["Sơ Nhập Giang Hồ","Tam Lưu","Nhị Lưu","Nhất Lưu","Tuyệt Đỉnh","Phá Hư Cảnh"], stats:["Nội Lực","Ngoại Công","Khinh Công","Ám Khí","Kinh Nghiệm Giang Hồ"], currency:"Lượng Bạc", items:"binh khí, bí kíp, ngựa" },
+  "GAME": { name:"Game System", ranks:["Bronze","Silver","Gold","Platinum","Diamond","Master","Challenger"], stats:["ATK","DEF","HP","MP","CRIT","SPD"], currency:"Gold", items:"trang bị, item, pet" },
+  "SIÊU NĂNG": { name:"Siêu Năng", ranks:["Giác Tỉnh","E","D","C","B","A","S","Quốc Bảo"], stats:["Năng Lực Chính","Kiểm Soát","Thể Chất","Tinh Thần","Phạm Vi"], currency:"Tín Dụng", items:"thiết bị hỗ trợ, thuốc tăng cường" },
+  "NGÔN TÌNH": { name:"Tình Duyên", ranks:["Xa Lạ","Quen Biết","Bạn Bè","Tình Cảm","Yêu Đương","Kết Duyên"], stats:["Nhan Sắc","Trí Tuệ","EQ","Gia Thế","Duyên Phận"], currency:"Bạc", items:"trang sức, thư tín, quà tặng" },
 };
 
 function getGenreSystem(tags) {
@@ -1539,18 +1603,35 @@ function StoryReader({ story, onBack, onReset, xu, onSpendXu, savedData, onSave,
   const [history, setHistory] = useState(savedData?.history||[]);
   const [chapter, setChapter] = useState(savedData?.chapter||1);
   const [customInput, setCustomInput] = useState("");
+  const [showCharPanel, setShowCharPanel] = useState(false);
+  const [storyEquip, setStoryEquip] = useState(savedData?.equipment || { equipped:[], notes:"" });
   const scrollRef = useRef(null);
 
-  const doSave = useCallback((s,h,c) => {
-    onSave(story.id,{segments:s,history:h,chapter:c,title:story.title,lastPlayed:Date.now(),charData});
-  },[story,onSave,charData]);
+  const doSave = useCallback((s,h,c,eq) => {
+    const eqData = eq || storyEquip;
+    onSave(story.id,{segments:s,history:h,chapter:c,title:story.title,lastPlayed:Date.now(),charData,equipment:eqData});
+  },[story,onSave,charData,storyEquip]);
+
+  const toggleEquipItem = (itemName) => {
+    const eq = { ...storyEquip };
+    if (!eq.equipped) eq.equipped = [];
+    if (eq.equipped.includes(itemName)) {
+      eq.equipped = eq.equipped.filter(x => x !== itemName);
+    } else {
+      eq.equipped = [...eq.equipped, itemName];
+    }
+    setStoryEquip(eq);
+    doSave(segments, history, chapter, eq);
+  };
 
   const startStory = useCallback(async()=>{
     if(savedData?.segments?.length) return;
     setLoading(true);
     let charContext = "";
     if (charData) {
-      charContext = `\nNhân vật: ${charData.name} (${charData.gender}), ${charData.rank}. Võ Hồn: ${charData.stats?.voHon||"Chưa rõ"}. Kỹ năng: ${(charData.skills||[]).map(s=>s.name).join(", ")||"Chưa có"}.`;
+      const eqItems = storyEquip.equipped?.length ? storyEquip.equipped.join(", ") : "Chưa có";
+      const skills = (charData.skills||[]).map(s=>s.name).join(", ") || "Chưa có";
+      charContext = `\nNhân vật: ${charData.name} (${charData.gender}), ${charData.rank}. Trang bị: ${eqItems}. Kỹ năng: ${skills}.`;
     }
     const p = `Bắt đầu câu chuyện "${story.title}": ${story.desc.slice(0,200)}. Tags: ${story.tags.join(",")}.${charContext}\n\nViết chương mở đầu.`;
     const msgs = [{role:"user",content:p}];
@@ -1625,7 +1706,82 @@ function StoryReader({ story, onBack, onReset, xu, onSpendXu, savedData, onSave,
           </div>
         </div>
         <div style={{textAlign:"right"}}><div style={{fontSize:12,color:C.gold,fontWeight:700}}>Xu: {xu}</div><div style={{fontSize:9,color:C.textMuted}}>-{XU_PER_CHAPTER}/chuong</div></div>
+        {charData && <button onClick={()=>setShowCharPanel(!showCharPanel)} style={{ background:showCharPanel?C.accent:C.bg2,border:`1px solid ${showCharPanel?C.accent:C.border}`,color:showCharPanel?"#f5efe3":C.text,width:34,height:34,borderRadius:9,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }} title="Trang bị nhân vật">🛡</button>}
       </div>
+
+      {/* Character Equipment Panel */}
+      {showCharPanel && charData && (
+        <div style={{ position:"absolute",top:60,right:0,bottom:0,width:"min(340px,85vw)",background:C.bg,borderLeft:`1px solid ${C.border}`,zIndex:50,overflowY:"auto",padding:"20px 16px",boxShadow:"-4px 0 20px rgba(0,0,0,0.08)" }}>
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
+            <h3 style={{ fontFamily:"'Noto Serif',serif",fontSize:16,fontWeight:700,color:C.text }}>🛡 {charData.name}</h3>
+            <button onClick={()=>setShowCharPanel(false)} style={{ background:"transparent",border:"none",color:C.textDim,fontSize:18,cursor:"pointer" }}>✕</button>
+          </div>
+
+          {/* Rank */}
+          <div style={{ background:`${C.accent}08`,border:`1px solid ${C.accent}20`,borderRadius:10,padding:"12px 14px",marginBottom:14,textAlign:"center" }}>
+            <div style={{ fontSize:18,fontWeight:700,color:C.accent,fontFamily:"'Noto Serif',serif" }}>{charData.rank}</div>
+            <div style={{ fontSize:11,color:C.textDim,marginTop:2 }}>{charData.rankDesc || charData.system?.name || ""}</div>
+          </div>
+
+          {/* Stats */}
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:11,fontWeight:700,color:C.textMuted,textTransform:"uppercase",letterSpacing:1,marginBottom:8 }}>Chỉ số</div>
+            <div style={{ display:"flex",flexWrap:"wrap",gap:4 }}>
+              {(charData.mainStats || []).map((s,i) => (
+                <span key={i} style={{ display:"inline-flex",padding:"4px 10px",borderRadius:6,background:C.bg2,border:`1px solid ${C.border}`,fontSize:11,color:C.textDim,gap:4 }}>
+                  <strong style={{color:C.text}}>{s.name}:</strong> {s.value}
+                </span>
+              ))}
+              {!charData.mainStats && charData.stats && Object.entries(charData.stats).slice(0,8).map(([k,v]) => (
+                <span key={k} style={{ display:"inline-flex",padding:"4px 10px",borderRadius:6,background:C.bg2,border:`1px solid ${C.border}`,fontSize:11,color:C.textDim,gap:4 }}>
+                  <strong style={{color:C.text}}>{k}:</strong> {String(v).slice(0,20)}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Skills */}
+          {charData.skills?.length > 0 && (
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:11,fontWeight:700,color:C.textMuted,textTransform:"uppercase",letterSpacing:1,marginBottom:8 }}>Kỹ năng</div>
+              {charData.skills.map((sk,i) => (
+                <div key={i} style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",marginBottom:6 }}>
+                  <div style={{ fontSize:12,fontWeight:700,color:C.accent }}>{sk.name}</div>
+                  <div style={{ fontSize:11,color:C.textDim }}>{sk.desc}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Items — với toggle trang bị */}
+          {charData.items?.length > 0 && (
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:11,fontWeight:700,color:C.textMuted,textTransform:"uppercase",letterSpacing:1,marginBottom:8 }}>Vật phẩm {storyEquip.equipped?.length > 0 && <span style={{color:C.green}}>({storyEquip.equipped.length} đang dùng)</span>}</div>
+              {charData.items.map((it,i) => {
+                const isEq = storyEquip.equipped?.includes(it.name);
+                return (
+                  <div key={i} onClick={()=>toggleEquipItem(it.name)} style={{ background:isEq?`${C.green}08`:C.bg2,border:`1px solid ${isEq?C.green+"40":C.border}`,borderRadius:8,padding:"8px 12px",marginBottom:6,cursor:"pointer",transition:"all .2s" }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                      <span style={{ fontSize:11,fontWeight:700,color:isEq?C.green:C.accent }}>{isEq?"⚔":"○"} {it.name}</span>
+                      {it.qty > 1 && <span style={{ fontSize:10,color:C.textMuted }}>x{it.qty}</span>}
+                      <span style={{ marginLeft:"auto",fontSize:9,color:isEq?C.green:C.textMuted }}>{isEq?"Đang dùng":"Bấm để trang bị"}</span>
+                    </div>
+                    <div style={{ fontSize:11,color:C.textDim,marginTop:2 }}>{it.desc}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Backstory */}
+          {charData.backstory && (
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:11,fontWeight:700,color:C.textMuted,textTransform:"uppercase",letterSpacing:1,marginBottom:8 }}>Tiểu sử</div>
+              <p style={{ fontSize:12,color:C.textDim,lineHeight:1.7,background:C.bg2,borderRadius:8,padding:"10px 12px",border:`1px solid ${C.border}` }}>{charData.backstory}</p>
+            </div>
+          )}
+        </div>
+      )}
       <div ref={scrollRef} style={{ flex:1,overflowY:"auto",padding:"20px 20px 32px" }}>
         {segments.map((seg,i) => {
           if(seg.chosenText) return (
@@ -1691,11 +1847,22 @@ function Placeholder({icon,title,desc}) {
 // ═══════════════════════════════════════════════════════
 // PROFILE PAGE
 // ═══════════════════════════════════════════════════════
-function ProfilePage({ user, xu }) {
+function ProfilePage({ user, xu, onUpdateUser }) {
   const progress = LS("tai-progress",{});
   const streak = LS("tai-streak",0);
+  const favs = LS("tai-favs",[]);
+  const likes = LS("tai-likes",[]);
   const storiesCount = Object.keys(progress).length;
   const totalChapters = Object.values(progress).reduce((sum,p)=>sum+(p.chapter||0),0);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(user?.name || "");
+
+  const saveProfile = () => {
+    if (!editName.trim()) return;
+    onUpdateUser({ ...user, name: editName.trim() });
+    setEditing(false);
+  };
+
   const stat = (icon,label,value,color) => (
     <div style={{ background:C.bg3,borderRadius:12,padding:"18px 14px",textAlign:"center" }}>
       <div style={{ fontSize:24,marginBottom:4 }}>{icon}</div>
@@ -1709,9 +1876,20 @@ function ProfilePage({ user, xu }) {
       <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:16,padding:"24px 20px",marginBottom:20,display:"flex",alignItems:"center",gap:16 }}>
         <AvatarWithFrame size={64} fontSize={28} />
         <div style={{flex:1}}>
-          <div style={{ fontSize:20,fontWeight:700,color:C.text,display:"flex",alignItems:"center" }}>{user?.name}<TitleBadge /></div>
+          {editing ? (
+            <div style={{ display:"flex",gap:8,alignItems:"center",marginBottom:4 }}>
+              <input value={editName} onChange={e=>setEditName(e.target.value)} style={{ background:C.bg3,border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 10px",color:C.text,fontSize:16,fontWeight:700,outline:"none",flex:1 }} onKeyDown={e=>e.key==="Enter"&&saveProfile()} />
+              <button onClick={saveProfile} style={{ background:C.accent,border:"none",color:"#f5efe3",padding:"6px 12px",borderRadius:6,fontSize:12,fontWeight:700,cursor:"pointer" }}>Lưu</button>
+              <button onClick={()=>{setEditing(false);setEditName(user?.name||"");}} style={{ background:"transparent",border:`1px solid ${C.border}`,color:C.textDim,padding:"6px 10px",borderRadius:6,fontSize:12,cursor:"pointer" }}>Hủy</button>
+            </div>
+          ) : (
+            <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:2 }}>
+              <span style={{ fontSize:20,fontWeight:700,color:C.text }}>{user?.name}</span><TitleBadge />
+              <button onClick={()=>setEditing(true)} style={{ background:"transparent",border:"none",color:C.textMuted,cursor:"pointer",fontSize:12,padding:2 }}>✎</button>
+            </div>
+          )}
           <div style={{ fontSize:13,color:C.textDim }}>{user?.email||"player@truyenai.vn"}</div>
-          <div style={{ fontSize:12,color:C.gold,marginTop:4 }}>{user?.isAdmin?"Admin":"Người chơi"} {new Date(user?.createdAt||Date.now()).toLocaleDateString("vi-VN")}</div>
+          <div style={{ fontSize:12,color:C.gold,marginTop:4 }}>{user?.isAdmin?"Admin":"Người chơi"} • {new Date(user?.createdAt||Date.now()).toLocaleDateString("vi-VN")}</div>
           {(()=>{
             const eq=getEquipped();const parts=[];
             if(eq.frame){const f=eq.frame.replace("frame_","");parts.push("Khung: "+f);}
@@ -1721,14 +1899,16 @@ function ProfilePage({ user, xu }) {
           })()}
         </div>
       </div>
-      <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:12,marginBottom:20 }}>
-        {stat("🪙","Xu hiện có",xu)}
-        {stat("📖","Truyện đang đọc",storiesCount,C.text)}
-        {stat("📑","Tổng chương đã đọc",totalChapters,C.text)}
-        {stat("🔥","Chuỗi đăng nhập",streak+" ngày","#e74c3c")}
+      <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(110px,1fr))",gap:12,marginBottom:20 }}>
+        {stat("💰","Xu hiện có",xu)}
+        {stat("📖","Đang đọc",storiesCount,C.text)}
+        {stat("📑","Tổng chương",totalChapters,C.text)}
+        {stat("♥","Yêu thích",likes.length,C.red)}
+        {stat("★","Đã lưu",favs.length,"#8b6914")}
+        {stat("🔥","Streak",streak+" ngày","#8b2d2d")}
       </div>
       <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:20 }}>
-        <h3 style={{ fontSize:15,fontWeight:700,color:C.text,marginBottom:12 }}>📖 Truyện gần đây</h3>
+        <h3 style={{ fontSize:15,fontWeight:700,color:C.text,marginBottom:12 }}>Truyện gần đây</h3>
         {storiesCount===0?<p style={{color:C.textMuted,fontSize:13}}>Chưa đọc truyện nào</p>:(
           <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
             {Object.entries(progress).slice(0,5).map(([id,d])=>{
@@ -2122,9 +2302,14 @@ function CollectionPage() {
                 </div>
                 {ch.stats && (
                   <div style={{ display:"flex",flexWrap:"wrap",gap:4 }}>
-                    {ch.stats.capDo && <span style={{padding:"3px 10px",borderRadius:6,background:C.bg3,border:`1px solid ${C.border}`,fontSize:10,color:C.textDim}}>Cap: {ch.stats.capDo}</span>}
-                    {ch.stats.voHon && <span style={{padding:"3px 10px",borderRadius:6,background:C.bg3,border:`1px solid ${C.border}`,fontSize:10,color:C.textDim}}>Vo Hon: {ch.stats.voHon}</span>}
+                    {ch.stats.capDo && <span style={{padding:"3px 10px",borderRadius:6,background:C.bg3,border:`1px solid ${C.border}`,fontSize:10,color:C.textDim}}>Cấp: {ch.stats.capDo}</span>}
+                    {ch.stats.voHon && <span style={{padding:"3px 10px",borderRadius:6,background:C.bg3,border:`1px solid ${C.border}`,fontSize:10,color:C.textDim}}>Võ Hồn: {ch.stats.voHon}</span>}
                     {ch.stats.thanPhan && <span style={{padding:"3px 10px",borderRadius:6,background:C.bg3,border:`1px solid ${C.border}`,fontSize:10,color:C.textDim}}>{ch.stats.thanPhan}</span>}
+                  </div>
+                )}
+                {ch.mainStats && (
+                  <div style={{ display:"flex",flexWrap:"wrap",gap:4 }}>
+                    {ch.mainStats.slice(0,4).map((s,j) => <span key={j} style={{padding:"3px 10px",borderRadius:6,background:C.bg3,border:`1px solid ${C.border}`,fontSize:10,color:C.textDim}}>{s.name}: {s.value}</span>)}
                   </div>
                 )}
               </div>
@@ -2247,7 +2432,15 @@ function SettingsPage() {
 // ═══════════════════════════════════════════════════════
 function HomePage({ onStart, onReset, savedProgress, setPage }) {
   const [search, setSearch] = useState("");
-  const filtered = search ? STORIES.filter(s=>s.title.toLowerCase().includes(search.toLowerCase())||s.tags.some(t=>t.toLowerCase().includes(search.toLowerCase()))) : STORIES;
+  const [tab, setTab] = useState("all");
+  const [likes, setLikes] = useState(LS("tai-likes",[]));
+  const [favs, setFavs] = useState(LS("tai-favs",[]));
+  const toggleLike = (id) => { const n = likes.includes(id)?likes.filter(x=>x!==id):[...likes,id]; setLikes(n); LSSet("tai-likes",n); };
+  const toggleFav = (id) => { const n = favs.includes(id)?favs.filter(x=>x!==id):[...favs,id]; setFavs(n); LSSet("tai-favs",n); };
+  let list = STORIES;
+  if (tab==="fav") list = STORIES.filter(s=>favs.includes(s.id));
+  if (tab==="reading") list = STORIES.filter(s=>savedProgress[s.id]);
+  const filtered = search ? list.filter(s=>s.title.toLowerCase().includes(search.toLowerCase())||s.tags.some(t=>t.toLowerCase().includes(search.toLowerCase()))) : list;
   return (
     <>
       <section style={{ textAlign:"center",padding:"52px 20px 28px",position:"relative",background:"linear-gradient(180deg,#ebe3d3 0%,#f5efe3 100%)" }}>
@@ -2269,11 +2462,16 @@ function HomePage({ onStart, onReset, savedProgress, setPage }) {
           </div>
         </div>
       </div>
+      <div style={{ maxWidth:700,margin:"0 auto 20px",padding:"0 20px",display:"flex",gap:6 }}>
+        {[["all","Tất cả ("+STORIES.length+")"],["fav","★ Yêu thích ("+favs.length+")"],["reading","▶ Đang đọc ("+Object.keys(savedProgress).length+")"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{ padding:"7px 16px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",background:tab===id?C.accent+"15":"transparent",border:tab===id?`1px solid ${C.accent}40`:`1px solid ${C.border}`,color:tab===id?C.accent:C.textDim }}>{label}</button>
+        ))}
+      </div>
       <div style={{ maxWidth:1100,margin:"0 auto",padding:"0 20px 60px" }}>
         <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:18 }}>
-          {filtered.map(s=><StoryCard key={s.id} story={s} onStart={onStart} onReset={onReset} saved={!!savedProgress[s.id]} />)}
+          {filtered.map(s=><StoryCard key={s.id} story={s} onStart={onStart} onReset={onReset} saved={!!savedProgress[s.id]} onLike={toggleLike} onFav={toggleFav} isLiked={likes.includes(s.id)} isFav={favs.includes(s.id)} />)}
         </div>
-        {filtered.length===0&&<p style={{textAlign:"center",color:C.textMuted,padding:40,fontFamily:"'Noto Serif',serif"}}>Không tìm thấy truyện</p>}
+        {filtered.length===0&&<p style={{textAlign:"center",color:C.textMuted,padding:40,fontFamily:"'Noto Serif',serif"}}>{tab==="fav"?"Chưa yêu thích truyện nào":tab==="reading"?"Chưa đọc truyện nào":"Không tìm thấy truyện"}</p>}
       </div>
     </>
   );
@@ -2458,7 +2656,7 @@ export default function App() {
         {page==="ranking"&&<RankingPage />}
         {page==="events"&&<Placeholder icon="🎉" title="Sự Kiện" desc="Minigame và phần thưởng — Sắp ra mắt" />}
         {page==="support"&&<Placeholder icon="💬" title="Hỗ Trợ & Liên Hệ" desc="Liên hệ Admin qua Facebook hoặc Discord để được hỗ trợ" />}
-        {page==="profile"&&<ProfilePage user={user} xu={xu} />}
+        {page==="profile"&&<ProfilePage user={user} xu={xu} onUpdateUser={(u)=>{setUser(u);LSSet("tai-user",u);const ek=u.email?.replace(/[.#$\[\]]/g,"_");if(ek)fbUpdate("users/"+ek,{name:u.name});}} />}
         {page==="referral"&&<Placeholder icon="🎁" title="Giới Thiệu Nhận Xu" desc="Chia sẻ link cho bạn bè — Nhận 5 xu mỗi người đăng ký" />}
         {page==="missions"&&<MissionsPage xu={xu} onAddXu={(n)=>{const v=xu+n;setXu(v);LSSet("tai-xu",v);}} />}
         {page==="shop"&&<ShopPage xu={xu} onSpendXu={spendXu} />}
