@@ -22,22 +22,32 @@ function LSSet(key, value) {
 // ═══════════════════════════════════════════════════════
 // FIREBASE HELPERS — đồng bộ data giữa các thiết bị
 // ═══════════════════════════════════════════════════════
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyB0dA0gclSOIPOdQTv2hjvdd1cdkl-UK5M",
+  authDomain: "truyenai-65899.firebaseapp.com",
+  databaseURL: "https://truyenai-65899-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "truyenai-65899",
+};
+
 let _fb = null;
 function initFirebase() {
   if (_fb) return _fb;
-  const cfg = LS("tai-firebase-config", null);
-  if (!cfg || !cfg.databaseURL) return null;
   try {
-    if (!window.firebase?.apps?.length) {
-      window.firebase.initializeApp(cfg);
+    if (!window.firebase) return null;
+    if (!window.firebase.apps?.length) {
+      window.firebase.initializeApp(FIREBASE_CONFIG);
     }
     _fb = window.firebase.database();
     return _fb;
   } catch(e) { console.error("Firebase init error:", e); return null; }
 }
 
+// Auto-init Firebase khi load trang
+try { setTimeout(()=>initFirebase(), 500); } catch(e) {}
+
 async function fbGet(path) {
-  const db = initFirebase();
+  let db = initFirebase();
+  if (!db) { await new Promise(r=>setTimeout(r,1000)); db = initFirebase(); }
   if (!db) return null;
   try {
     const snap = await db.ref(path).once("value");
@@ -46,8 +56,9 @@ async function fbGet(path) {
 }
 
 async function fbSet(path, data) {
-  const db = initFirebase();
-  if (!db) return false;
+  let db = initFirebase();
+  if (!db) { await new Promise(r=>setTimeout(r,1000)); db = initFirebase(); }
+  if (!db) { console.warn("FB not ready, skip set:", path); return false; }
   try {
     await db.ref(path).set(data);
     return true;
