@@ -282,7 +282,7 @@ function Dropdown({ user, xu, setPage, onLogout }) {
 // ═══════════════════════════════════════════════════════
 // STORY CARD (giống gốc)
 // ═══════════════════════════════════════════════════════
-function StoryCard({ story, onStart, saved }) {
+function StoryCard({ story, onStart, onReset, saved }) {
   return (
     <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,overflow:"hidden",transition:"all .25s" }}
       onMouseEnter={e=>{e.currentTarget.style.borderColor=C.borderHover;e.currentTarget.style.transform="translateY(-2px)";}}
@@ -300,6 +300,7 @@ function StoryCard({ story, onStart, saved }) {
       </div>
       <div style={{ padding:"0 14px 14px",display:"flex",gap:8 }}>
         <button onClick={()=>onStart(story)} style={{ flex:1,background:"transparent",border:`1.5px solid ${C.gold}`,color:C.gold,padding:"10px 16px",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>{saved?"▶ Đọc tiếp":"⚔ Bắt đầu"}</button>
+        {saved && <button onClick={()=>onReset(story)} style={{ background:"transparent",border:`1.5px solid ${C.border}`,color:C.textDim,padding:"10px 12px",borderRadius:10,cursor:"pointer",fontSize:11,fontWeight:600 }}>↻ Lại</button>}
         <button style={{ width:42,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textDim,borderRadius:10,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center" }}>☆</button>
       </div>
     </div>
@@ -1268,7 +1269,7 @@ function CharacterCreation({ story, xu, onSpendXu, onStartWithChar, onBack }) {
 // ═══════════════════════════════════════════════════════
 // STORY READER
 // ═══════════════════════════════════════════════════════
-function StoryReader({ story, onBack, xu, onSpendXu, savedData, onSave, charData }) {
+function StoryReader({ story, onBack, onReset, xu, onSpendXu, savedData, onSave, charData }) {
   const [segments, setSegments] = useState(savedData?.segments||[]);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState(savedData?.history||[]);
@@ -1285,19 +1286,18 @@ function StoryReader({ story, onBack, xu, onSpendXu, savedData, onSave, charData
     setLoading(true);
     let charContext = "";
     if (charData) {
-      charContext = `\n\nNHÂN VẬT CHÍNH: ${charData.name} (${charData.gender})
-Thân phận: ${charData.rank} — ${charData.rankDesc}
-Chỉ số: Cấp ${charData.stats?.capDo}, Tốc độ ${charData.stats?.tocDo}, Sức mạnh ${charData.stats?.sucManh}, Hồn lực ${charData.stats?.honLuc}, Trí lực ${charData.stats?.triLuc}
-Võ Hồn: ${charData.stats?.voHon}, Thân phận: ${charData.stats?.thanPhan}
-Kỹ năng: ${(charData.skills||[]).map(s=>s.name).join(", ")}
-Hành trang: ${(charData.items||[]).map(i=>i.name).join(", ")}
-Tiểu sử: ${charData.backstory}
-
-Hãy viết chương mở đầu DỰA TRÊN nhân vật này, đề cập đến tên, thân phận và khả năng của nhân vật.`;
+      charContext = `\nNhân vật: ${charData.name} (${charData.gender}), ${charData.rank}. Võ Hồn: ${charData.stats?.voHon||"Chưa rõ"}. Kỹ năng: ${(charData.skills||[]).map(s=>s.name).join(", ")||"Chưa có"}.`;
     }
-    const p = `Bắt đầu câu chuyện "${story.title}": ${story.desc}. Tags: ${story.tags.join(",")}.${charContext}\n\nViết chương mở đầu thật hấp dẫn.`;
+    const p = `Bắt đầu câu chuyện "${story.title}": ${story.desc.slice(0,200)}. Tags: ${story.tags.join(",")}.${charContext}\n\nViết chương mở đầu.`;
     const msgs = [{role:"user",content:p}];
-    const resp = await callAI(msgs);
+    
+    // Thử gọi API, nếu lỗi thì retry 1 lần với prompt ngắn hơn
+    let resp = await callAI(msgs);
+    if (resp.startsWith("⚠") || resp.startsWith("Lỗi")) {
+      const shortMsgs = [{role:"user",content:`Viết chương mở đầu cho truyện "${story.title}". Tags: ${story.tags.join(",")}. Bối cảnh: ${story.desc.slice(0,100)}.`}];
+      resp = await callAI(shortMsgs);
+    }
+    
     const parsed = parseResponse(resp);
     const h = [...msgs,{role:"assistant",content:resp}];
     setHistory(h); setSegments([parsed]); doSave([parsed],h,1);
@@ -1313,8 +1313,16 @@ Hãy viết chương mở đầu DỰA TRÊN nhân vật này, đề cập đế
     setCustomInput("");
     setLoading(true);
     const nc=chapter+1; setChapter(nc);
-    const newMsgs = [...history,{role:"user",content:`Tôi chọn: "${choice.text}". Tiếp tục.`}];
-    const resp = await callAI(newMsgs);
+    const newMsgs = [...history,{role:"user",content:`Tôi chọn: "${choice.text}". Tiếp tục câu chuyện.`}];
+    let resp = await callAI(newMsgs);
+    // Nếu lỗi, retry với lịch sử ngắn hơn
+    if (resp.startsWith("⚠") || resp.startsWith("Lỗi")) {
+      const lastSeg = segments.filter(s=>s.narrative).pop();
+      const shortMsgs = [
+        {role:"user",content:`Truyện "${story.title}". Đoạn gần nhất: "${(lastSeg?.narrative||"").slice(0,300)}..." Người chơi chọn: "${choice.text}". Viết tiếp.`}
+      ];
+      resp = await callAI(shortMsgs);
+    }
     const parsed = parseResponse(resp);
     const h = [...newMsgs,{role:"assistant",content:resp}];
     const s = [...segments,{chosenText:choice.text,chosenId:choice.id},parsed];
@@ -1328,38 +1336,16 @@ Hãy viết chương mở đầu DỰA TRÊN nhân vật này, đề cập đế
     {bg:"rgba(142,68,173,0.06)",border:"rgba(142,68,173,0.25)",hover:"rgba(142,68,173,0.12)",badge:"linear-gradient(135deg,#8e44ad,#9b59b6)",badgeC:"#fff"},
   ];
 
-  const eq = getEquipped();
-  const activeFx = eq.fx ? FX_DATA[eq.fx] : null;
-
   return (
     <div style={{ maxWidth:720,margin:"0 auto",display:"flex",flexDirection:"column",height:"calc(100vh - 48px)",position:"relative",overflow:"hidden" }}>
-      {/* FX Particles overlay */}
-      {activeFx && (
-        <div style={{ position:"absolute",inset:0,pointerEvents:"none",zIndex:10,overflow:"hidden" }}>
-          {Array.from({length:12}).map((_,i)=>(
-            <div key={i} style={{
-              position:"absolute",
-              left:`${Math.random()*100}%`,
-              top:`${-10-Math.random()*20}%`,
-              width:activeFx.name==="sakura"?10:activeFx.name==="sparkle"?4:2,
-              height:activeFx.name==="sakura"?10:activeFx.name==="sparkle"?4:8,
-              borderRadius:activeFx.name==="sakura"?"50%":"1px",
-              background:activeFx.color,
-              opacity:0,
-              animation:`fxFall ${3+Math.random()*4}s linear ${Math.random()*5}s infinite`,
-            }} />
-          ))}
-        </div>
-      )}
-      <style>{`@keyframes fxFall{0%{transform:translateY(-20px) rotate(0deg);opacity:0}10%{opacity:0.8}90%{opacity:0.6}100%{transform:translateY(calc(100vh + 20px)) rotate(${activeFx?.name==="sakura"?"360":"180"}deg);opacity:0}}`}</style>
       <div style={{ padding:"12px 20px",display:"flex",alignItems:"center",gap:12,borderBottom:`1px solid ${C.border}`,flexShrink:0 }}>
         <button onClick={onBack} style={{ background:C.bg2,border:`1px solid ${C.border}`,color:C.text,width:34,height:34,borderRadius:9,cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center" }}>←</button>
+        <button onClick={()=>{if(confirm("Bắt đầu lại truyện này?"))onReset(story);}} title="Bắt đầu lại" style={{ background:C.bg2,border:`1px solid ${C.border}`,color:C.textDim,width:34,height:34,borderRadius:9,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center" }}>↻</button>
         <div style={{ flex:1,minWidth:0 }}>
           <div style={{ fontFamily:"'Noto Serif Display',serif",fontSize:16,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{story.title}</div>
           <div style={{ display:"flex",gap:4,marginTop:2,flexWrap:"wrap",alignItems:"center" }}>
             {story.tags.slice(0,3).map(t=><Tag key={t} name={t}/>)}
             <span style={{ fontSize:10,color:C.textMuted }}>Chương {chapter}</span>
-            {activeFx && <span style={{ fontSize:10,color:activeFx.color,fontWeight:600 }}>{activeFx.name==="sparkle"?"Lấp lánh":activeFx.name==="thunder"?"Sấm sét":"Hoa đào"}</span>}
           </div>
         </div>
         <div style={{textAlign:"right"}}><div style={{fontSize:12,color:C.gold,fontWeight:700}}>Xu: {xu}</div><div style={{fontSize:9,color:C.textMuted}}>-{XU_PER_CHAPTER}/chuong</div></div>
@@ -1977,7 +1963,7 @@ function SettingsPage() {
 // ═══════════════════════════════════════════════════════
 // HOME PAGE
 // ═══════════════════════════════════════════════════════
-function HomePage({ onStart, savedProgress, setPage }) {
+function HomePage({ onStart, onReset, savedProgress, setPage }) {
   const [search, setSearch] = useState("");
   const filtered = search ? STORIES.filter(s=>s.title.toLowerCase().includes(search.toLowerCase())||s.tags.some(t=>t.toLowerCase().includes(search.toLowerCase()))) : STORIES;
   return (
@@ -2002,7 +1988,7 @@ function HomePage({ onStart, savedProgress, setPage }) {
       </div>
       <div style={{ maxWidth:1100,margin:"0 auto",padding:"0 20px 60px" }}>
         <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:18 }}>
-          {filtered.map(s=><StoryCard key={s.id} story={s} onStart={onStart} saved={!!savedProgress[s.id]} />)}
+          {filtered.map(s=><StoryCard key={s.id} story={s} onStart={onStart} onReset={onReset} saved={!!savedProgress[s.id]} />)}
         </div>
         {filtered.length===0&&<p style={{textAlign:"center",color:C.textMuted,padding:40}}>Không tìm thấy truyện</p>}
       </div>
@@ -2152,6 +2138,12 @@ export default function App() {
       setReadingStory(story); setPage("storydetail");
     }
   };
+  const resetStory = (story) => {
+    if (!confirm("Bắt đầu lại \"" + story.title + "\"? Tiến trình cũ sẽ bị xóa.")) return;
+    setSavedProgress(p => { const n={...p}; delete n[story.id]; LSSet("tai-progress",n); return n; });
+    setResumeData(null); setCharData(null);
+    setReadingStory(story); setPage("storydetail");
+  };
   const startWithChar = (cd) => {
     setCharData(cd); setResumeData(null); setPage("reading");
   };
@@ -2173,11 +2165,11 @@ export default function App() {
       
       <Navbar user={user} page={page} setPage={setPage} onLogout={handleLogout} xu={xu} />
       <main>
-        {page==="home"&&<HomePage onStart={startStory} savedProgress={savedProgress} setPage={setPage} />}
-        {page==="library"&&<HomePage onStart={startStory} savedProgress={savedProgress} setPage={setPage} />}
+        {page==="home"&&<HomePage onStart={startStory} onReset={resetStory} savedProgress={savedProgress} setPage={setPage} />}
+        {page==="library"&&<HomePage onStart={startStory} onReset={resetStory} savedProgress={savedProgress} setPage={setPage} />}
         {page==="storydetail"&&readingStory&&<CharacterCreation story={readingStory} xu={xu} onSpendXu={spendXu} onStartWithChar={startWithChar} onBack={()=>setPage("home")} />}
         {page==="customstory"&&<CustomStoryPage xu={xu} onSpendXu={spendXu} onStartReading={startCustomStory} onBack={()=>setPage("home")} />}
-        {page==="reading"&&readingStory&&<StoryReader story={readingStory} onBack={()=>setPage("home")} xu={xu} onSpendXu={spendXu} savedData={resumeData} onSave={saveProgress} charData={charData} />}
+        {page==="reading"&&readingStory&&<StoryReader story={readingStory} onBack={()=>setPage("home")} onReset={resetStory} xu={xu} onSpendXu={spendXu} savedData={resumeData} onSave={saveProgress} charData={charData} />}
         {page==="admin"&&user?.isAdmin&&<AdminPanel />}
         {page==="topup"&&<TopUpPage xu={xu} onAddXu={addXu} user={user} />}
         {page==="ranking"&&<RankingPage />}
