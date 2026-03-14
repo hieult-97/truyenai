@@ -737,11 +737,39 @@ function AdminPanel() {
 
   const saveFirebaseConfig = () => {
     if (!fbConfig.databaseURL) { alert("Cần nhập Database URL!"); return; }
-    LSSet("tai-firebase-config", fbConfig);
-    _fb = null; // Reset
-    const db = initFirebase();
-    if (db) { setFbStatus("✅ Kết nối Firebase thành công!"); alert("✅ Firebase đã kết nối!"); }
-    else { setFbStatus("❌ Không kết nối được. Kiểm tra lại config."); }
+    // Auto-generate authDomain from projectId
+    const fullConfig = {
+      ...fbConfig,
+      authDomain: fbConfig.projectId ? fbConfig.projectId + ".firebaseapp.com" : "",
+    };
+    LSSet("tai-firebase-config", fullConfig);
+    _fb = null; // Reset connection
+    try {
+      // Re-init firebase with new config
+      if (window.firebase?.apps?.length) {
+        window.firebase.app().delete().then(() => {
+          window.firebase.initializeApp(fullConfig);
+          _fb = window.firebase.database();
+          setFbStatus("✅ Kết nối Firebase thành công!");
+          alert("✅ Firebase đã kết nối!");
+        });
+      } else {
+        window.firebase.initializeApp(fullConfig);
+        _fb = window.firebase.database();
+        setFbStatus("✅ Kết nối Firebase thành công!");
+        alert("✅ Firebase đã kết nối!");
+      }
+    } catch(e) {
+      console.error("Firebase init:", e);
+      // Nếu app đã tồn tại, thử dùng app hiện tại
+      try {
+        _fb = window.firebase.database();
+        setFbStatus("✅ Kết nối Firebase thành công!");
+        alert("✅ Firebase đã kết nối!");
+      } catch(e2) {
+        setFbStatus("❌ Lỗi: " + e.message);
+      }
+    }
   };
 
   const generateTokens = () => {
