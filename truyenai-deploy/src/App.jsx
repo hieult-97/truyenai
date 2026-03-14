@@ -217,7 +217,9 @@ async function callAI(messages) {
         return d.choices?.[0]?.message?.content || null;
       }
       if (r.status === 429 && attempt < retries) {
-        const wait = (attempt + 1) * 5;
+        // Đọc thời gian chờ từ header, fallback tăng dần
+        const retryAfter = r.headers.get("retry-after");
+        const wait = retryAfter ? Math.min(parseInt(retryAfter)||10, 60) : Math.min(10 + attempt * 10, 60);
         console.log(`Rate limited, retry ${attempt+1}/${retries} in ${wait}s...`);
         await new Promise(res => setTimeout(res, wait * 1000));
         continue;
@@ -226,7 +228,7 @@ async function callAI(messages) {
       try { const eb = await r.json(); errMsg = eb.error?.message || ""; } catch(e) {}
       console.error("Groq", r.status, errMsg);
       if (r.status === 401) return "⚠ API Key không hợp lệ.";
-      if (r.status === 429) return "⚠ Đang chờ API... thử lại sau 30 giây.";
+      if (r.status === 429) return null; // Hết retry, sẽ thử lại ở tầng ngoài
       if (r.status === 413) return null;
       return null;
     }
@@ -239,14 +241,23 @@ async function callAI(messages) {
     if (r1) return r1;
   } catch(e) { console.error("Groq 1:", e); }
 
-  // Lần 2: chỉ message cuối (nếu lịch sử quá dài)
+  // Lần 2: chỉ message cuối
   try {
     const last = trimmed.filter(m => m.role === "user").pop();
     const r2 = await doCall([{ role:"system", content:SYSTEM_PROMPT }, { role:"user", content: last?.content || "Viết tiếp." }]);
     if (r2) return r2;
   } catch(e) { console.error("Groq 2:", e); }
 
-  return "⚠ Groq API lỗi. Kiểm tra Console (F12).";
+  // Lần 3: đợi thêm 30s rồi thử lần cuối
+  try {
+    console.log("Final retry after 30s cooldown...");
+    await new Promise(res => setTimeout(res, 30000));
+    const last = trimmed.filter(m => m.role === "user").pop();
+    const r3 = await doCall([{ role:"system", content:SYSTEM_PROMPT }, { role:"user", content: last?.content || "Viết tiếp." }], 1);
+    if (r3) return r3;
+  } catch(e) { console.error("Groq 3:", e); }
+
+  return "⚠ API đang quá tải. Vui lòng đợi 1-2 phút rồi bấm lại lựa chọn.";
 }
 
 function parseResponse(text) {
@@ -1065,32 +1076,19 @@ function TopUpPage({ xu, onAddXu, user }) {
       local.used = true; local.usedBy = user?.email; local.usedAt = Date.now();
       LSSet("tai-tokens", localTokens);
       await fbSet("tokens/" + code, local);
-      onAddXu(local.xu);
-      addXuHistory("token", local.xu, "Nhập token " + code);
+      onAddXu(local.xu, "Nhập token " + code);
       setTokenMsg(`✅ Nhận ${local.xu} xu từ token ${code}!`);
-      setTokenCode("");
-      setTokenLoading(false);
+      setTokenCode(""); setTokenLoading(false);
+      setXuHistory(LS("tai-xu-history",[])); // refresh history
       return;
     }
     if (fbToken.used) { setTokenMsg("❌ Token đã được sử dụng bởi " + (fbToken.usedBy||"ai đó") + "."); setTokenLoading(false); return; }
-    // Sử dụng token
     fbToken.used = true; fbToken.usedBy = user?.email; fbToken.usedAt = Date.now();
     await fbSet("tokens/" + code, fbToken);
-    onAddXu(fbToken.xu);
-    addXuHistory("token", fbToken.xu, "Nhập token " + code);
+    onAddXu(fbToken.xu, "Nhập token " + code);
     setTokenMsg(`✅ Nhận ${fbToken.xu} xu từ token ${code}!`);
-    setTokenCode("");
-    setTokenLoading(false);
-  };
-
-  const addXuHistory = (type, amount, desc) => {
-    const entry = { type, amount, desc, time: Date.now() };
-    const h = [entry, ...xuHistory].slice(0, 50);
-    setXuHistory(h); LSSet("tai-xu-history", h);
-    // Cập nhật tổng xu đã dùng lên Firebase cho xếp hạng
-    const emailKey = user?.email?.replace(/[.#$\[\]]/g,"_");
-    if (emailKey) fbUpdate("users/" + emailKey, { xu: xu + amount, totalXuEarned: (LS("tai-total-earned",0)) + (amount > 0 ? amount : 0) });
-    if (amount > 0) { const t = LS("tai-total-earned",0) + amount; LSSet("tai-total-earned", t); }
+    setTokenCode(""); setTokenLoading(false);
+    setXuHistory(LS("tai-xu-history",[])); // refresh history
   };
 
   const handlePay = (pkg) => {
@@ -1319,7 +1317,7 @@ function CustomStoryPage({ xu, onSpendXu, onStartReading, onBack }) {
   const generatePreview = async () => {
     if (!title.trim() || !setting.trim()) { alert("Vui lòng nhập tiêu đề và bối cảnh!"); return; }
     if (xu < COST) { alert("Cần " + COST + " xu!"); return; }
-    onSpendXu(COST);
+    onSpendXu(COST, "Tạo truyện tùy chỉnh");
     setLoading(true);
     const prompt = `Tôi muốn tạo câu chuyện tương tác:
 - Tiêu đề: "${title}"
@@ -1483,7 +1481,7 @@ function CharacterCreation({ story, xu, onSpendXu, onStartWithChar, onBack }) {
   const handleRoll = async () => {
     if (!charName.trim()) { alert("Nhập tên nhân vật!"); return; }
     if (xu < ROLL_COST) { alert(`Cần ${ROLL_COST} xu để roll!`); return; }
-    onSpendXu(ROLL_COST);
+    onSpendXu(ROLL_COST, "Roll thân phận nhân vật");
     setLoading(true);
     const sys = getGenreSystem(story.tags);
     const prompt = `Truyện: "${story.title}" — ${story.desc}\nThể loại: ${story.tags.join(", ")}\nHệ thống: ${sys.name}\nCác cấp bậc: ${sys.ranks.join(" → ")}\nChỉ số quan trọng: ${sys.stats.join(", ")}\nĐơn vị tiền: ${sys.currency}\nVật phẩm phổ biến: ${sys.items}\nNhân vật: ${charName.trim()}, giới tính: ${gender}\n\n${CHAR_PROMPT_BASE}`;
@@ -1512,7 +1510,7 @@ function CharacterCreation({ story, xu, onSpendXu, onStartWithChar, onBack }) {
 
   const handleStart = () => {
     if (xu < START_COST) { alert(`Cần ${START_COST} xu để bắt đầu!`); return; }
-    onSpendXu(START_COST);
+    onSpendXu(START_COST, "Khởi tạo chương đầu");
     onStartWithChar(charData);
   };
 
@@ -1719,7 +1717,7 @@ function StoryReader({ story, onBack, onReset, xu, onSpendXu, savedData, onSave,
 
   const handleChoice = async(choice) => {
     if(xu<XU_PER_CHAPTER){alert(`Cần ${XU_PER_CHAPTER} xu để tiếp tục!`);return;}
-    onSpendXu(XU_PER_CHAPTER);
+    onSpendXu(XU_PER_CHAPTER, "Đọc chương tiếp theo");
     setCustomInput("");
     setLoading(true);
     const nc=chapter+1; setChapter(nc);
@@ -1742,7 +1740,7 @@ function StoryReader({ story, onBack, onReset, xu, onSpendXu, savedData, onSave,
     if (segments.length < 3) { alert("Không thể quay lại — đang ở chương đầu!"); return; }
     if (xu < UNDO_COST) { alert(`Cần ${UNDO_COST} xu để quay lại!`); return; }
     if (!confirm(`Quay lại lựa chọn trước? Tốn ${UNDO_COST} xu (gấp đôi bình thường).`)) return;
-    onSpendXu(UNDO_COST);
+    onSpendXu(UNDO_COST, "Quay lại lựa chọn trước");
     // Xóa 2 segments cuối (narrative + choice trước đó)
     const newSegs = segments.slice(0, -2);
     // Xóa 2 messages cuối trong history (user choice + assistant response)
@@ -1896,7 +1894,7 @@ function StoryReader({ story, onBack, onReset, xu, onSpendXu, savedData, onSave,
             </div>
           );
         })}
-        {loading&&(<div style={{display:"flex",alignItems:"center",gap:8,padding:"14px 0"}}><span style={{fontSize:12,color:C.textDim}}>AI đang viết</span>{[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:C.gold,animation:`dotBounce 1.2s ${i*.15}s infinite`}}/>)}</div>)}
+        {loading&&(<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"14px 0"}}><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:12,color:C.textDim}}>AI đang viết (có thể mất 10-60s nếu đang chờ lượt)</span>{[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:C.gold,animation:`dotBounce 1.2s ${i*.15}s infinite`}}/>)}</div></div>)}
       </div>
     </div>
   );
@@ -1971,6 +1969,8 @@ function ProfilePage({ user, xu, onUpdateUser }) {
         {stat("♥","Yêu thích",likes.length,C.red)}
         {stat("★","Đã lưu",favs.length,"#8b6914")}
         {stat("🔥","Streak",streak+" ngày","#8b2d2d")}
+        {stat("📈","Tổng nạp",LS("tai-total-earned",0),C.green)}
+        {stat("📉","Tổng tiêu",LS("tai-total-spent",0),C.red)}
       </div>
       <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:20 }}>
         <h3 style={{ fontSize:15,fontWeight:700,color:C.text,marginBottom:12 }}>Truyện gần đây</h3>
@@ -2019,7 +2019,7 @@ function MissionsPage({ xu, onAddXu }) {
     const next = [...claimed, m.id];
     setClaimed(next);
     LSSet("tai-mclaim-"+today, next);
-    onAddXu(m.reward);
+    onAddXu(m.reward, "Nhiệm vụ: " + m.title);
   };
 
   return (
@@ -2151,7 +2151,7 @@ function ShopPage({ xu, onSpendXu }) {
   const buy = (item) => {
     if(xu<item.price){alert("Không đủ xu!");return;}
     if(owned.includes(item.id)){alert("Đã sở hữu!");return;}
-    onSpendXu(item.price);
+    onSpendXu(item.price, "Mua: " + item.name);
     const n=[...owned,item.id]; setOwned(n); LSSet("tai-owned",n);
   };
   return (
@@ -2477,7 +2477,7 @@ function RankingPage() {
                 </div>
                 <div style={{ textAlign:"right",flexShrink:0 }}>
                   <div style={{ fontSize:14,fontWeight:700,color:C.gold }}>{earned.toLocaleString("vi-VN")} xu</div>
-                  <div style={{ fontSize:10,color:C.textDim }}>Xu: {(u.xu||0).toLocaleString("vi-VN")}</div>
+                  <div style={{ fontSize:10,color:C.textDim }}>Hiện có: {(u.xu||0).toLocaleString("vi-VN")} | Đã tiêu: {(u.totalXuSpent||0).toLocaleString("vi-VN")}</div>
                 </div>
               </div>
             );
@@ -2717,39 +2717,61 @@ export default function App() {
       const newXu = xu + info.bonus;
       setXu(newXu); LSSet("tai-xu", newXu);
       setDailyBonusInfo(info);
+      // Sync daily bonus to Firebase
+      const ek = user?.email?.replace(/[.#$\[\]]/g,"_");
+      if (ek) {
+        const totalEarned = LS("tai-total-earned",0) + info.bonus; LSSet("tai-total-earned", totalEarned);
+        fbUpdate("users/" + ek, { xu: newXu, totalXuEarned: totalEarned });
+      }
+      logXu("earn", info.bonus, "Thưởng đăng nhập hàng ngày (+"+info.bonus+" xu)");
     }
   }, [user]); // eslint-disable-line
 
+  // Load xu from Firebase on login
+  useEffect(() => {
+    if (user && user.email && !user.isAdmin) {
+      (async () => {
+        const ek = user.email.replace(/[.#$\[\]]/g,"_");
+        const fbUser = await fbGet("users/" + ek);
+        if (fbUser && typeof fbUser.xu === "number") {
+          setXu(fbUser.xu); LSSet("tai-xu", fbUser.xu);
+          if (fbUser.totalXuEarned) LSSet("tai-total-earned", fbUser.totalXuEarned);
+          if (fbUser.totalXuSpent) LSSet("tai-total-spent", fbUser.totalXuSpent);
+        }
+      })();
+    }
+  }, [user?.email]); // eslint-disable-line
+
+  const logXu = (type, amount, desc) => {
+    const h = [{ type, amount: type==="spend"?-Math.abs(amount):Math.abs(amount), desc, time:Date.now() }, ...LS("tai-xu-history",[])].slice(0,50);
+    LSSet("tai-xu-history", h);
+  };
+
   const handleLogin = (u) => {
     setUser(u); LSSet("tai-user",u);
-    const savedXu = LS("tai-xu", null);
-    // First time user gets DEFAULT_XU, returning user keeps their xu
-    if (savedXu === null || savedXu === DEFAULT_XU) {
-      setXu(u.xu||DEFAULT_XU); LSSet("tai-xu",u.xu||DEFAULT_XU);
-    } else {
-      setXu(savedXu);
-    }
+    // Dùng xu từ user data (Firebase), fallback localStorage
+    const uXu = u.xu ?? DEFAULT_XU;
+    setXu(uXu); LSSet("tai-xu", uXu);
   };
   const handleLogout = () => { setUser(null); LSSet("tai-user",null); setPage("home"); };
-  const spendXu = (n) => {
+
+  const spendXu = (n, reason) => {
     const v=Math.max(0,xu-n); setXu(v); LSSet("tai-xu",v);
-    // Log history
-    const h = [{ type:"spend", amount:-n, desc:`Tiêu ${n} xu`, time:Date.now() }, ...LS("tai-xu-history",[])].slice(0,50);
-    LSSet("tai-xu-history", h);
+    logXu("spend", n, reason || `Tiêu ${n} xu`);
+    // Track total spent
+    const totalSpent = LS("tai-total-spent",0) + n; LSSet("tai-total-spent", totalSpent);
     // Sync Firebase
     const ek = user?.email?.replace(/[.#$\[\]]/g,"_");
-    if (ek) fbUpdate("users/" + ek, { xu: v });
+    if (ek) fbUpdate("users/" + ek, { xu: v, totalXuSpent: totalSpent });
   };
-  const addXu = (n) => {
+  const addXu = (n, reason) => {
     const v=xu+n; setXu(v); LSSet("tai-xu",v);
     const totalEarned = LS("tai-total-earned",0) + n; LSSet("tai-total-earned", totalEarned);
-    // Log history
-    const h = [{ type:"earn", amount:n, desc:`Nạp ${n} xu`, time:Date.now() }, ...LS("tai-xu-history",[])].slice(0,50);
-    LSSet("tai-xu-history", h);
+    logXu("earn", n, reason || `Nạp ${n} xu`);
     // Sync Firebase
     const ek = user?.email?.replace(/[.#$\[\]]/g,"_");
     if (ek) fbUpdate("users/" + ek, { xu: v, totalXuEarned: totalEarned });
-    alert(`✅ Nạp ${n} xu thành công!`);
+    alert(`✅ Nhận ${n} xu thành công!`);
   };
   const saveProgress = useCallback((id,data)=>{
     setSavedProgress(p=>{const n={...p,[id]:data}; LSSet("tai-progress",n); return n;});
@@ -2806,7 +2828,7 @@ export default function App() {
         {page==="support"&&<Placeholder icon="💬" title="Hỗ Trợ & Liên Hệ" desc="Liên hệ Admin qua Facebook hoặc Discord để được hỗ trợ" />}
         {page==="profile"&&<ProfilePage user={user} xu={xu} onUpdateUser={(u)=>{setUser(u);LSSet("tai-user",u);const ek=u.email?.replace(/[.#$\[\]]/g,"_");if(ek)fbUpdate("users/"+ek,{name:u.name});}} />}
         {page==="referral"&&<Placeholder icon="🎁" title="Giới Thiệu Nhận Xu" desc="Chia sẻ link cho bạn bè — Nhận 5 xu mỗi người đăng ký" />}
-        {page==="missions"&&<MissionsPage xu={xu} onAddXu={(n)=>{const v=xu+n;setXu(v);LSSet("tai-xu",v);}} />}
+        {page==="missions"&&<MissionsPage xu={xu} onAddXu={(n,r)=>{ const v=xu+n; setXu(v); LSSet("tai-xu",v); const te=LS("tai-total-earned",0)+n; LSSet("tai-total-earned",te); logXu("earn",n,r||"Hoàn thành nhiệm vụ"); const ek=user?.email?.replace(/[.#$\[\]]/g,"_"); if(ek)fbUpdate("users/"+ek,{xu:v,totalXuEarned:te}); }} />}
         {page==="shop"&&<ShopPage xu={xu} onSpendXu={spendXu} />}
         {page==="inventory"&&<InventoryPage />}
         {page==="collection"&&<CollectionPage />}
