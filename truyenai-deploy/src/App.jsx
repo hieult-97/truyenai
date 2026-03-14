@@ -52,98 +52,67 @@ const STORIES = [
   { id:"s18", title:"Đầu Bếp Bí Ẩn Dị Giới", tags:["ISEKAI","SLICE OF LIFE","FANTASY"], desc:"Kỹ năng duy nhất khi chuyển sinh: Nấu Ăn Cấp SSS. Trong thế giới nơi thịt quái vật ngon hơn gà rán, bạn mở nhà hàng giữa rừng quái.", plays:170, likes:52, icon:"🍳" },
 ];
 
-const SYSTEM_PROMPT = `Bạn là nhà văn tiểu thuyết tương tác hàng đầu Việt Nam, chuyên viết web novel. Quy tắc BẮT BUỘC:
-
-1. Viết tiếng Việt CÓ DẤU đầy đủ, giàu hình ảnh, cảm xúc mãnh liệt, giọng văn cuốn hút
-2. Người đọc là nhân vật chính — dùng "bạn"
-3. Mỗi đoạn 200-300 từ, kết thúc ở cliffhanger kịch tính khiến người đọc muốn biết tiếp
-4. LUÔN kết thúc bằng ĐÚNG 3 lựa chọn CỤ THỂ VÀ CHI TIẾT:
-
+const SYSTEM_PROMPT = `Bạn là nhà văn tiểu thuyết tương tác Việt Nam. Viết tiếng Việt có dấu, dùng "bạn" cho nhân vật chính. Mỗi đoạn 200-300 từ, kết thúc cliffhanger. LUÔN kết thúc bằng 3 lựa chọn cụ thể chi tiết (15+ từ mỗi lựa chọn):
 ---CHOICES---
-[A] (Mô tả hành động cụ thể ít nhất 15 từ, gắn với bối cảnh đang xảy ra, tên nhân vật, địa điểm)
-[B] (Hành động khác biệt hoàn toàn, dẫn đến hướng đi mới, có rủi ro và phần thưởng rõ ràng)
-[C] (Hành động bất ngờ, sáng tạo, ngoài dự đoán, có thể thay đổi hoàn toàn cục diện câu chuyện)
+[A] Hành động cụ thể gắn bối cảnh...
+[B] Hành động khác biệt hoàn toàn...
+[C] Hành động bất ngờ sáng tạo...
 ---END---
+KHÔNG viết lựa chọn chung chung. Mỗi lựa chọn dẫn đến diễn biến khác nhau.`;
 
-VÍ DỤ LỰA CHỌN TỐT:
-[A] Rút thanh kiếm gỉ sét bên hông, chắn đòn tấn công của tên thích khách và hét lớn gọi lính canh
-[B] Phóng Hỏa Cầu vào đám cỏ khô phía sau, tạo bức tường lửa ngăn cách rồi chạy vào rừng sâu
-[C] Quỳ xuống, giả vờ đầu hàng — nhưng lén kích hoạt Hồn Kỹ ẩn giấu, đợi hắn mất cảnh giác
+const AI_MODEL = "claude-sonnet-4-20250514";
 
-VÍ DỤ LỰA CHỌN TỆ (TUYỆT ĐỐI KHÔNG VIẾT):
-[A] Tiếp tục khám phá
-[B] Thận trọng quan sát  
-[C] Tìm hướng khác
-
-5. Giữ nhất quán context, nhớ tên nhân vật, vũ khí, kỹ năng, sự kiện đã xảy ra
-6. Mỗi lựa chọn PHẢI dẫn đến diễn biến KHÁC NHAU hoàn toàn — không chỉ thay đổi câu chữ`;
-
-// ═══════════════════════════════════════════════════════
-// AI API
-// ═══════════════════════════════════════════════════════
 async function callAI(messages) {
-  // Lọc bỏ messages lỗi khỏi lịch sử (nội dung bắt đầu bằng ⚠ hoặc "Lỗi")
-  const clean = messages.filter(m => m.role === "user" || (m.role === "assistant" && !m.content?.startsWith("⚠") && !m.content?.startsWith("Lỗi")));
-  // Đảm bảo xen kẽ user/assistant đúng format
+  // Lọc messages lỗi + đảm bảo format đúng
+  const clean = messages.filter(m => m.content && !String(m.content).startsWith("⚠") && !String(m.content).startsWith("Lỗi"));
   const fixed = [];
-  for (let i = 0; i < clean.length; i++) {
-    if (i === 0 && clean[i].role !== "user") continue;
-    if (fixed.length > 0 && fixed[fixed.length-1].role === clean[i].role) continue;
-    fixed.push(clean[i]);
+  for (const m of clean) {
+    if (fixed.length === 0 && m.role !== "user") continue;
+    if (fixed.length > 0 && fixed[fixed.length-1].role === m.role) continue;
+    fixed.push({role:m.role, content:String(m.content).slice(0, 2000)});
   }
-  // Đảm bảo kết thúc bằng user message
-  const msgs = fixed.length > 0 && fixed[fixed.length-1].role === "user" ? fixed : 
-    fixed.length > 0 ? [...fixed, {role:"user",content:"Tiếp tục câu chuyện."}] : 
-    [{role:"user",content:messages[0]?.content || "Viết chương tiếp theo."}];
-  // Giới hạn 16 messages
-  const trimmed = msgs.length > 16 ? [msgs[0], ...msgs.slice(-15)] : msgs;
+  if (fixed.length === 0 || fixed[fixed.length-1].role !== "user") {
+    fixed.push({role:"user", content: messages[0]?.content || "Viết chương tiếp theo."});
+  }
+  const trimmed = fixed.length > 12 ? [fixed[0], ...fixed.slice(-11)] : fixed;
 
-  // Nếu có API key → gọi trực tiếp (tránh CORS error)
   const apiKey = LS("tai-apikey", "");
+  
+  const doCall = async (msgs, key) => {
+    const headers = { "Content-Type":"application/json" };
+    if (key) { headers["x-api-key"] = key; headers["anthropic-version"] = "2023-06-01"; headers["anthropic-dangerous-direct-browser-access"] = "true"; }
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method:"POST", headers,
+      body: JSON.stringify({ model: AI_MODEL, max_tokens: 1024, system: SYSTEM_PROMPT, messages: msgs }),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      return d.content?.map(c => c.text || "").join("\n") || null;
+    }
+    let errMsg = "";
+    try { const eb = await r.json(); errMsg = eb.error?.message || ""; } catch(e) {}
+    console.error("API", r.status, errMsg);
+    if (r.status === 401) return "⚠ API Key không hợp lệ.";
+    if (r.status === 429) return "⚠ Hết lượt gọi. Đợi vài phút.";
+    return null;
+  };
+
   if (apiKey) {
     try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1024, system: SYSTEM_PROMPT, messages: trimmed }),
-      });
-      if (r.ok) {
-        const d = await r.json();
-        return d.content?.map(c => c.text || "").join("\n") || "...";
-      }
-      if (r.status === 401) return "⚠ API Key không hợp lệ. Kiểm tra lại trong Admin Panel.";
-      if (r.status === 429) return "⚠ Hết lượt gọi. Đợi vài phút rồi thử lại.";
-      if (r.status === 400) {
-        // Thử lại với prompt ngắn nhất
-        try {
-          const last = trimmed.filter(m=>m.role==="user").pop();
-          const retry = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: { "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
-            body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1024, system: SYSTEM_PROMPT, messages: [{role:"user",content:last?.content||"Viết tiếp câu chuyện."}] }),
-          });
-          if (retry.ok) { const d2 = await retry.json(); return d2.content?.map(c=>c.text||"").join("\n")||"..."; }
-        } catch(e2) {}
-        return "⚠ Lỗi dữ liệu. Bấm ↻ để bắt đầu lại truyện.";
-      }
-      return "Lỗi API: " + r.status;
-    } catch(e) { return "Lỗi kết nối: " + e.message; }
+      const r1 = await doCall(trimmed, apiKey);
+      if (r1) return r1;
+    } catch(e) { console.error("Call 1:", e); }
+    try {
+      const r2 = await doCall([{role:"user",content:trimmed.filter(m=>m.role==="user").pop()?.content||"Viết tiếp."}], apiKey);
+      if (r2) return r2;
+    } catch(e) { console.error("Call 2:", e); }
+    return "⚠ API lỗi. Kiểm tra Console (F12) để xem chi tiết. Thử bấm ↻ bắt đầu lại.";
   }
 
-  // Không có key → thử gọi không key (chỉ hoạt động trong Claude.ai artifact)
   try {
-    const r1 = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1024, system: SYSTEM_PROMPT, messages: trimmed }),
-    });
-    if (r1.ok) {
-      const d = await r1.json();
-      const txt = d.content?.map(c => c.text || "").join("\n");
-      if (txt) return txt;
-    }
-  } catch(e) { /* CORS on Vercel — bình thường */ }
-
+    const r = await doCall(trimmed, null);
+    if (r) return r;
+  } catch(e) {}
   return "⚠ Chưa kết nối AI. Admin cần nhập API Key trong Admin Panel.";
 }
 
@@ -234,16 +203,16 @@ function Navbar({ user, page, setPage, onLogout, xu }) {
   return (
     <header style={{ position:"sticky",top:0,zIndex:200,background:"linear-gradient(180deg,#ebe3d3,#f5efe3)",borderBottom:`2px solid ${C.accent}22`,height:52,display:"flex",alignItems:"center",padding:"0 20px",gap:8,boxShadow:"0 2px 12px rgba(90,70,50,0.06)" }}>
       <div onClick={()=>setPage("home")} style={{ display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginRight:16 }}>
-        <span style={{ fontFamily:"'Noto Serif Display',serif",fontSize:22,fontWeight:800,color:C.ink,letterSpacing:-0.5 }}>墨</span>
-        <span style={{ fontFamily:"'Noto Serif Display',serif",fontSize:17,fontWeight:700,color:C.ink }}>TruyệnAI</span>
+        <span style={{ fontFamily:"'Noto Serif',serif",fontSize:22,fontWeight:800,color:C.ink,letterSpacing:-0.5 }}>墨</span>
+        <span style={{ fontFamily:"'Noto Serif',serif",fontSize:17,fontWeight:700,color:C.ink }}>TruyệnAI</span>
       </div>
       <nav style={{ display:"flex",gap:0,flex:1,overflowX:"auto" }}>
         {nav.map(n=>(
-          <button key={n.id} onClick={()=>setPage(n.id)} style={{ background:"transparent",border:"none",color:page===n.id?C.ink:C.textDim,fontSize:13,fontWeight:page===n.id?700:400,padding:"8px 14px",cursor:"pointer",borderRadius:0,whiteSpace:"nowrap",borderBottom:page===n.id?`2px solid ${C.accent}`:"2px solid transparent",fontFamily:"'Noto Serif Display',serif",letterSpacing:0.3 }}>{n.l}</button>
+          <button key={n.id} onClick={()=>setPage(n.id)} style={{ background:"transparent",border:"none",color:page===n.id?C.ink:C.textDim,fontSize:13,fontWeight:page===n.id?700:400,padding:"8px 14px",cursor:"pointer",borderRadius:0,whiteSpace:"nowrap",borderBottom:page===n.id?`2px solid ${C.accent}`:"2px solid transparent",fontFamily:"'Noto Serif',serif",letterSpacing:0.3 }}>{n.l}</button>
         ))}
       </nav>
       <div style={{ display:"flex",alignItems:"center",gap:12 }}>
-        <span style={{ fontSize:12,color:C.accent,fontWeight:700,display:"flex",alignItems:"center",gap:4,fontFamily:"'Noto Serif Display',serif" }}><Coin size={14}/> {xu} xu</span>
+        <span style={{ fontSize:12,color:C.accent,fontWeight:700,display:"flex",alignItems:"center",gap:4,fontFamily:"'Noto Serif',serif" }}><Coin size={14}/> {xu} xu</span>
         <div style={{ position:"relative" }}>
           <button onClick={()=>setDd(!dd)} style={{ background:C.bg2,border:`1px solid ${C.border}`,color:C.text,fontSize:12,fontWeight:500,padding:"5px 12px",borderRadius:8,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
             <AvatarWithFrame size={22} fontSize={10} />
@@ -318,14 +287,14 @@ function StoryCard({ story, onStart, onReset, saved }) {
         <div style={{ flex:1,display:"flex",flexWrap:"wrap",gap:3 }}>{story.tags.map(t=><Tag key={t} name={t}/>)}</div>
       </div>
       <div style={{ padding:"12px 18px" }}>
-        <h3 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:17,fontWeight:700,color:C.ink,marginBottom:10,lineHeight:1.4 }}>{story.title}</h3>
+        <h3 style={{ fontFamily:"'Noto Serif',serif",fontSize:17,fontWeight:700,color:C.ink,marginBottom:10,lineHeight:1.4 }}>{story.title}</h3>
         <p style={{ fontSize:13,color:C.textDim,lineHeight:1.65,display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical",overflow:"hidden",minHeight:52 }}>{story.desc}</p>
       </div>
       <div style={{ padding:"0 18px 10px",display:"flex",gap:14,fontSize:11,color:C.textMuted }}>
         <span>▸ {story.plays} lượt</span><span>♡ {story.likes}</span>
       </div>
       <div style={{ padding:"0 18px 16px",display:"flex",gap:8 }}>
-        <button onClick={()=>onStart(story)} style={{ flex:1,background:saved?`linear-gradient(135deg,${C.accent},${C.ink})`:"transparent",border:saved?"none":`1.5px solid ${C.accent}40`,color:saved?"#f5efe3":C.accent,padding:"11px 16px",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'Noto Serif Display',serif" }}>{saved?"▶ Đọc tiếp":"⚔ Bắt đầu"}</button>
+        <button onClick={()=>onStart(story)} style={{ flex:1,background:saved?`linear-gradient(135deg,${C.accent},${C.ink})`:"transparent",border:saved?"none":`1.5px solid ${C.accent}40`,color:saved?"#f5efe3":C.accent,padding:"11px 16px",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'Noto Serif',serif" }}>{saved?"▶ Đọc tiếp":"⚔ Bắt đầu"}</button>
         {saved && <button onClick={()=>onReset(story)} style={{ background:"transparent",border:`1.5px solid ${C.border}`,color:C.textDim,padding:"11px 12px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600 }}>↻</button>}
       </div>
     </div>
@@ -417,13 +386,13 @@ function LoginScreen({ onLogin }) {
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:"'Inter',sans-serif" }}>
       <div style={{ maxWidth:420, width:"100%", textAlign:"center" }}>
         <div onClick={handleLogoClick} style={{ cursor:"default", marginBottom:8, userSelect:"none" }}>
-          <span style={{ fontFamily:"'Noto Serif Display',serif", fontSize:34, fontWeight:800, color:C.gold }}>墨 TruyệnAI</span>
+          <span style={{ fontFamily:"'Noto Serif',serif", fontSize:34, fontWeight:800, color:C.gold }}>墨 TruyệnAI</span>
         </div>
         <p style={{ color:C.textDim, fontSize:14, marginBottom:32 }}>Bắt đầu hành trình của bạn</p>
 
         {view === "login" && (
           <div style={{ background:C.bg2, border:`1px solid ${C.border}`, borderRadius:18, padding:"32px 28px", textAlign:"left" }}>
-            <h2 style={{ fontFamily:"'Noto Serif Display',serif", fontSize:24, fontWeight:700, color:C.text, marginBottom:24 }}>Đăng nhập</h2>
+            <h2 style={{ fontFamily:"'Noto Serif',serif", fontSize:24, fontWeight:700, color:C.text, marginBottom:24 }}>Đăng nhập</h2>
             <label style={labelStyle}>Email</label>
             <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com" type="email" style={{ ...inputStyle, marginBottom:18 }} />
             <label style={labelStyle}>Mật khẩu</label>
@@ -445,7 +414,7 @@ function LoginScreen({ onLogin }) {
 
         {view === "register" && (
           <div style={{ background:C.bg2, border:`1px solid ${C.border}`, borderRadius:18, padding:"32px 28px", textAlign:"left" }}>
-            <h2 style={{ fontFamily:"'Noto Serif Display',serif", fontSize:24, fontWeight:700, color:C.text, marginBottom:24 }}>Đăng ký</h2>
+            <h2 style={{ fontFamily:"'Noto Serif',serif", fontSize:24, fontWeight:700, color:C.text, marginBottom:24 }}>Đăng ký</h2>
             <label style={labelStyle}>Tên hiển thị</label>
             <input value={name} onChange={e=>setName(e.target.value)} placeholder="Tên của bạn" style={{ ...inputStyle, marginBottom:18 }} />
             <label style={labelStyle}>Email</label>
@@ -469,7 +438,7 @@ function LoginScreen({ onLogin }) {
 
         {view === "admin" && (
           <div style={{ background:C.bg2, border:`1px solid rgba(139,45,45,0.25)`, borderRadius:18, padding:"32px 28px", textAlign:"left" }}>
-            <h2 style={{ fontFamily:"'Noto Serif Display',serif", fontSize:24, fontWeight:700, color:C.red, marginBottom:24 }}>Admin Login</h2>
+            <h2 style={{ fontFamily:"'Noto Serif',serif", fontSize:24, fontWeight:700, color:C.red, marginBottom:24 }}>Admin Login</h2>
             <label style={labelStyle}>Tên Admin</label>
             <input value={adminName} onChange={e=>setAdminName(e.target.value)} placeholder="Admin name" style={{ ...inputStyle, marginBottom:18 }} />
             <label style={labelStyle}>Mật khẩu Admin</label>
@@ -647,7 +616,7 @@ function AdminPanel() {
 
   return (
     <div style={{ padding:"28px 20px",maxWidth:900,margin:"0 auto" }}>
-      <h2 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:26,fontWeight:700,color:C.gold,marginBottom:24 }}>🔑 Admin Panel</h2>
+      <h2 style={{ fontFamily:"'Noto Serif',serif",fontSize:26,fontWeight:700,color:C.gold,marginBottom:24 }}>🔑 Admin Panel</h2>
 
       {/* API Key Config */}
       <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:20,marginBottom:20 }}>
@@ -770,7 +739,7 @@ function TopUpPage({ xu, onAddXu, user }) {
 
   return (
     <div style={{ padding:"28px 20px",maxWidth:700,margin:"0 auto" }}>
-      <h2 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:28,fontWeight:700,color:C.text,marginBottom:20 }}>Tài khoản</h2>
+      <h2 style={{ fontFamily:"'Noto Serif',serif",fontSize:28,fontWeight:700,color:C.text,marginBottom:20 }}>Tài khoản</h2>
 
       {/* Tabs */}
       <div style={{ display:"flex",gap:4,borderBottom:`1px solid ${C.border}`,marginBottom:24,overflowX:"auto" }}>
@@ -860,7 +829,7 @@ function TopUpPage({ xu, onAddXu, user }) {
           )}
 
           <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:"24px 20px" }}>
-            <h3 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:18,fontWeight:700,color:C.gold,marginBottom:4 }}>Donate nhận xu</h3>
+            <h3 style={{ fontFamily:"'Noto Serif',serif",fontSize:18,fontWeight:700,color:C.gold,marginBottom:4 }}>Donate nhận xu</h3>
             <p style={{ color:C.textDim,fontSize:13,marginBottom:20 }}>Mỗi lượt chơi tốn <strong style={{color:C.text}}>{XU_PER_CHAPTER} xu</strong>. Chọn gói Donate và bấm nút thanh toán.</p>
 
             <div style={{ display:"flex",flexDirection:"column",gap:0 }}>
@@ -1015,7 +984,7 @@ Viết chương mở đầu thật hấp dẫn cho câu chuyện này. Nhớ k�
     <div style={{ padding:"28px 20px", maxWidth:700, margin:"0 auto" }}>
       <button onClick={onBack} style={{ background:C.bg2, border:`1px solid ${C.border}`, color:C.text, padding:"8px 16px", borderRadius:10, cursor:"pointer", fontSize:13, marginBottom:20 }}>← Quay lại</button>
 
-      <h2 style={{ fontFamily:"'Noto Serif Display',serif", fontSize:26, fontWeight:700, color:C.gold, marginBottom:4 }}>Tạo câu chuyện của bạn</h2>
+      <h2 style={{ fontFamily:"'Noto Serif',serif", fontSize:26, fontWeight:700, color:C.gold, marginBottom:4 }}>Tạo câu chuyện của bạn</h2>
       <p style={{ color:C.textDim, fontSize:13, marginBottom:24 }}>Mô tả ý tưởng — AI sẽ viết thành tiểu thuyết tương tác</p>
 
       {!preview ? (
@@ -1066,7 +1035,7 @@ Viết chương mở đầu thật hấp dẫn cho câu chuyện này. Nhớ k�
             <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
               <span style={{ fontSize:28 }}>✍</span>
               <div>
-                <h3 style={{ fontFamily:"'Noto Serif Display',serif", fontSize:20, fontWeight:700, color:C.text }}>{title}</h3>
+                <h3 style={{ fontFamily:"'Noto Serif',serif", fontSize:20, fontWeight:700, color:C.text }}>{title}</h3>
                 <span style={{ fontSize:11, color:C.gold, fontWeight:600 }}>{genre || "Tự do"}</span>
               </div>
             </div>
@@ -1154,14 +1123,14 @@ function CharacterCreation({ story, xu, onSpendXu, onStartWithChar, onBack }) {
         <div style={{ display:"flex",flexWrap:"wrap",gap:4,marginBottom:12 }}>
           {story.tags.map(t => <Tag key={t} name={t} />)}
         </div>
-        <h2 style={{ fontFamily:"'Noto Serif Display',serif", fontSize:24, fontWeight:700, color:C.text, marginBottom:12, lineHeight:1.3 }}>{story.title}</h2>
+        <h2 style={{ fontFamily:"'Noto Serif',serif", fontSize:24, fontWeight:700, color:C.text, marginBottom:12, lineHeight:1.3 }}>{story.title}</h2>
         <p style={{ fontSize:14, color:C.textDim, lineHeight:1.7 }}>{story.desc}</p>
       </div>
 
       {/* Step: Form */}
       {step === "form" && (
         <div style={{ background:C.bg2, border:`1px solid ${C.border}`, borderRadius:16, padding:"24px 20px" }}>
-          <h3 style={{ fontFamily:"'Noto Serif Display',serif", fontSize:20, fontWeight:700, color:C.text, marginBottom:20, display:"flex", alignItems:"center", gap:8 }}>
+          <h3 style={{ fontFamily:"'Noto Serif',serif", fontSize:20, fontWeight:700, color:C.text, marginBottom:20, display:"flex", alignItems:"center", gap:8 }}>
             <span style={{ fontSize:22 }}>🎲</span> Roll thân phận
           </h3>
 
@@ -1205,7 +1174,7 @@ function CharacterCreation({ story, xu, onSpendXu, onStartWithChar, onBack }) {
           {/* Rank Banner */}
           <div style={{ background:"linear-gradient(135deg, rgba(74,103,65,0.15), rgba(74,103,65,0.08))", border:`1px solid rgba(74,103,65,0.25)`, borderRadius:16, padding:"28px 20px", textAlign:"center", marginBottom:16 }}>
             <div style={{ fontSize:36, marginBottom:6 }}>🛡</div>
-            <h3 style={{ fontFamily:"'Noto Serif Display',serif", fontSize:22, fontWeight:700, color:"#4a6741", marginBottom:6 }}>{charData.rank}</h3>
+            <h3 style={{ fontFamily:"'Noto Serif',serif", fontSize:22, fontWeight:700, color:"#4a6741", marginBottom:6 }}>{charData.rank}</h3>
             <p style={{ fontSize:13, color:C.textDim }}>{charData.rankDesc}</p>
           </div>
 
@@ -1367,7 +1336,7 @@ function StoryReader({ story, onBack, onReset, xu, onSpendXu, savedData, onSave,
         <button onClick={onBack} style={{ background:C.bg2,border:`1px solid ${C.border}`,color:C.text,width:34,height:34,borderRadius:9,cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center" }}>←</button>
         <button onClick={()=>{if(confirm("Bắt đầu lại truyện này?"))onReset(story);}} title="Bắt đầu lại" style={{ background:C.bg2,border:`1px solid ${C.border}`,color:C.textDim,width:34,height:34,borderRadius:9,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center" }}>↻</button>
         <div style={{ flex:1,minWidth:0 }}>
-          <div style={{ fontFamily:"'Noto Serif Display',serif",fontSize:16,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{story.title}</div>
+          <div style={{ fontFamily:"'Noto Serif',serif",fontSize:16,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{story.title}</div>
           <div style={{ display:"flex",gap:4,marginTop:2,flexWrap:"wrap",alignItems:"center" }}>
             {story.tags.slice(0,3).map(t=><Tag key={t} name={t}/>)}
             <span style={{ fontSize:10,color:C.textMuted }}>Chương {chapter}</span>
@@ -1428,7 +1397,7 @@ function StoryReader({ story, onBack, onReset, xu, onSpendXu, savedData, onSave,
 // PLACEHOLDER
 // ═══════════════════════════════════════════════════════
 function Placeholder({icon,title,desc}) {
-  return <div style={{padding:"60px 20px",textAlign:"center",maxWidth:500,margin:"0 auto"}}><div style={{fontSize:56,marginBottom:12}}>{icon}</div><h2 style={{fontFamily:"'Noto Serif Display',serif",fontSize:24,fontWeight:700,color:C.text,marginBottom:8}}>{title}</h2><p style={{color:C.textDim,fontSize:14,lineHeight:1.6}}>{desc}</p></div>;
+  return <div style={{padding:"60px 20px",textAlign:"center",maxWidth:500,margin:"0 auto"}}><div style={{fontSize:56,marginBottom:12}}>{icon}</div><h2 style={{fontFamily:"'Noto Serif',serif",fontSize:24,fontWeight:700,color:C.text,marginBottom:8}}>{title}</h2><p style={{color:C.textDim,fontSize:14,lineHeight:1.6}}>{desc}</p></div>;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1448,7 +1417,7 @@ function ProfilePage({ user, xu }) {
   );
   return (
     <div style={{ padding:"28px 20px",maxWidth:700,margin:"0 auto" }}>
-      <h2 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:24 }}>Hồ sơ & Thống kê</h2>
+      <h2 style={{ fontFamily:"'Noto Serif',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:24 }}>Hồ sơ & Thống kê</h2>
       <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:16,padding:"24px 20px",marginBottom:20,display:"flex",alignItems:"center",gap:16 }}>
         <AvatarWithFrame size={64} fontSize={28} />
         <div style={{flex:1}}>
@@ -1522,7 +1491,7 @@ function MissionsPage({ xu, onAddXu }) {
 
   return (
     <div style={{ padding:"28px 20px",maxWidth:700,margin:"0 auto" }}>
-      <h2 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:4 }}>Nhiệm vụ nhận xu</h2>
+      <h2 style={{ fontFamily:"'Noto Serif',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:4 }}>Nhiệm vụ nhận xu</h2>
       <p style={{ color:C.textDim,fontSize:13,marginBottom:24 }}>Hoan thanh nhiem vu de nhan xu mien phi</p>
       <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
         {missions.map(m=>{
@@ -1588,7 +1557,7 @@ function NotifPage() {
   return (
     <div style={{ padding:"28px 20px",maxWidth:700,margin:"0 auto" }}>
       <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24 }}>
-        <h2 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:26,fontWeight:700,color:C.text }}>Thông báo</h2>
+        <h2 style={{ fontFamily:"'Noto Serif',serif",fontSize:26,fontWeight:700,color:C.text }}>Thông báo</h2>
         {unreadCount > 0 && (
           <button onClick={markAllRead} style={{ background:`${C.gold}15`,border:`1px solid ${C.gold}30`,color:C.gold,padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer" }}>Doc tat ca ({unreadCount})</button>
         )}
@@ -1656,7 +1625,7 @@ function ShopPage({ xu, onSpendXu }) {
     <div style={{ padding:"28px 20px",maxWidth:800,margin:"0 auto" }}>
       <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20 }}>
         <div>
-          <h2 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:4 }}>Cửa hàng</h2>
+          <h2 style={{ fontFamily:"'Noto Serif',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:4 }}>Cửa hàng</h2>
           <p style={{ color:C.textDim,fontSize:13 }}>Khung avatar, danh hiệu, hiệu ứng và buff</p>
         </div>
         <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 16px",fontSize:14,fontWeight:700,color:C.gold }}>Xu: {xu}</div>
@@ -1724,7 +1693,7 @@ function InventoryPage() {
 
   return (
     <div style={{ padding:"28px 20px",maxWidth:700,margin:"0 auto" }}>
-      <h2 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:4 }}>Túi đồ</h2>
+      <h2 style={{ fontFamily:"'Noto Serif',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:4 }}>Túi đồ</h2>
       <p style={{ color:C.textDim,fontSize:13,marginBottom:20 }}>Sở hữu: {owned.length} vật phẩm | Đang trang bị: {equippedList.length}</p>
 
       {/* Equipped section */}
@@ -1815,7 +1784,7 @@ function CollectionPage() {
 
   return (
     <div style={{ padding:"28px 20px",maxWidth:800,margin:"0 auto" }}>
-      <h2 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:4 }}>Bộ sưu tập</h2>
+      <h2 style={{ fontFamily:"'Noto Serif',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:4 }}>Bộ sưu tập</h2>
       <p style={{ color:C.textDim,fontSize:13,marginBottom:20 }}>Thành tựu: {doneCount}/{achievements.length} | Nhân vật: {characters.length}</p>
 
       {/* Tabs */}
@@ -1915,7 +1884,7 @@ function RankingPage() {
   const sorted = [...STORIES].sort((a,b)=>b.plays-a.plays);
   return (
     <div style={{ padding:"28px 20px",maxWidth:700,margin:"0 auto" }}>
-      <h2 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:24 }}>Bảng xếp hạng</h2>
+      <h2 style={{ fontFamily:"'Noto Serif',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:24 }}>Bảng xếp hạng</h2>
       <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
         {sorted.map((s,i)=>{
           const medal = i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`;
@@ -1963,7 +1932,7 @@ function SettingsPage() {
   );
   return (
     <div style={{ padding:"28px 20px",maxWidth:600,margin:"0 auto" }}>
-      <h2 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:24 }}>Cài đặt</h2>
+      <h2 style={{ fontFamily:"'Noto Serif',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:24 }}>Cài đặt</h2>
       <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:"4px 20px" }}>
         <Row icon="📝" label="Cỡ chữ đọc truyện" desc={`${fontSize}px`}>
           <input type="range" min="12" max="20" value={fontSize} onChange={e=>{setFontSize(+e.target.value);saveSetting("tai-fontsize",+e.target.value);}} style={{width:100}} />
@@ -1997,10 +1966,10 @@ function HomePage({ onStart, onReset, savedProgress, setPage }) {
         <div style={{ position:"absolute",inset:0,backgroundImage:"radial-gradient(circle at 20% 50%,rgba(139,69,19,0.03) 0%,transparent 50%),radial-gradient(circle at 80% 30%,rgba(139,45,45,0.03) 0%,transparent 50%)",pointerEvents:"none" }} />
         {/* Decorative line */}
         <div style={{ width:60,height:2,background:`linear-gradient(90deg,transparent,${C.accent}60,transparent)`,margin:"0 auto 16px" }} />
-        <div style={{ display:"inline-block",padding:"4px 18px",borderRadius:3,border:`1px solid ${C.accent}30`,color:C.accent,fontSize:11,fontWeight:600,marginBottom:20,background:`${C.accent}06`,fontFamily:"'Noto Serif Display',serif",letterSpacing:2 }}>書 TIỂU THUYẾT TƯƠNG TÁC</div>
-        <h1 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:"clamp(28px,5vw,42px)",fontWeight:700,color:C.ink,marginBottom:12,lineHeight:1.2,letterSpacing:-0.5 }}>Mỗi trang sách<br/>một thế giới mới</h1>
-        <p style={{ color:C.textDim,fontSize:14,maxWidth:420,margin:"0 auto 28px",lineHeight:1.7,fontFamily:"'Noto Serif Display',serif" }}>Bạn là nhân vật chính — mỗi lựa chọn<br/>dẫn đến vận mệnh khác nhau</p>
-        <button onClick={()=>setPage("customstory")} style={{ background:`linear-gradient(135deg,${C.accent},${C.ink})`, border:"none", color:"#f5efe3", padding:"13px 32px", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer", marginBottom:10, fontFamily:"'Noto Serif Display',serif", letterSpacing:0.5 }}>✍ Tạo câu chuyện của bạn</button>
+        <div style={{ display:"inline-block",padding:"4px 18px",borderRadius:3,border:`1px solid ${C.accent}30`,color:C.accent,fontSize:11,fontWeight:600,marginBottom:20,background:`${C.accent}06`,fontFamily:"'Noto Serif',serif",letterSpacing:2 }}>書 TIỂU THUYẾT TƯƠNG TÁC</div>
+        <h1 style={{ fontFamily:"'Noto Serif',serif",fontSize:"clamp(28px,5vw,42px)",fontWeight:700,color:C.ink,marginBottom:12,lineHeight:1.2,letterSpacing:-0.5 }}>Mỗi trang sách<br/>một thế giới mới</h1>
+        <p style={{ color:C.textDim,fontSize:14,maxWidth:420,margin:"0 auto 28px",lineHeight:1.7,fontFamily:"'Noto Serif',serif" }}>Bạn là nhân vật chính — mỗi lựa chọn<br/>dẫn đến vận mệnh khác nhau</p>
+        <button onClick={()=>setPage("customstory")} style={{ background:`linear-gradient(135deg,${C.accent},${C.ink})`, border:"none", color:"#f5efe3", padding:"13px 32px", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer", marginBottom:10, fontFamily:"'Noto Serif',serif", letterSpacing:0.5 }}>✍ Tạo câu chuyện của bạn</button>
         <p style={{ color:C.textMuted, fontSize:11 }}>Hoặc chọn từ thư viện bên dưới</p>
         <div style={{ width:60,height:2,background:`linear-gradient(90deg,transparent,${C.accent}40,transparent)`,margin:"20px auto 0" }} />
       </section>
@@ -2016,7 +1985,7 @@ function HomePage({ onStart, onReset, savedProgress, setPage }) {
         <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:18 }}>
           {filtered.map(s=><StoryCard key={s.id} story={s} onStart={onStart} onReset={onReset} saved={!!savedProgress[s.id]} />)}
         </div>
-        {filtered.length===0&&<p style={{textAlign:"center",color:C.textMuted,padding:40,fontFamily:"'Noto Serif Display',serif"}}>Không tìm thấy truyện</p>}
+        {filtered.length===0&&<p style={{textAlign:"center",color:C.textMuted,padding:40,fontFamily:"'Noto Serif',serif"}}>Không tìm thấy truyện</p>}
       </div>
     </>
   );
@@ -2061,7 +2030,7 @@ function DailyBonusModal({ bonus, streak, onClose }) {
         
         <div style={{ position:"relative",zIndex:1 }}>
           <div style={{ fontSize:56,marginBottom:8 }}>🎁</div>
-          <h2 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:22,fontWeight:700,color:C.gold,marginBottom:6 }}>Thưởng đăng nhập!</h2>
+          <h2 style={{ fontFamily:"'Noto Serif',serif",fontSize:22,fontWeight:700,color:C.gold,marginBottom:6 }}>Thưởng đăng nhập!</h2>
           <p style={{ color:C.textDim,fontSize:13,marginBottom:20 }}>Chào mừng bạn quay lại hôm nay</p>
           
           {/* Bonus amount */}
