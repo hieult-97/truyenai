@@ -23,12 +23,12 @@ function LSSet(key, value) {
 // DATA
 // ═══════════════════════════════════════════════════════
 const TAGS_COLORS = {
-  "HUYỀN HUYỄN":"#b8860b","TIÊN HIỆP":"#c0392b","ISEKAI":"#2980b9",
-  "FANTASY":"#8e44ad","DARK FANTASY":"#7f1d1d","SLICE OF LIFE":"#27ae60",
-  "NÔNG TRẠI":"#6b8e23","XÂY DỰNG":"#d4a017","MANHWA":"#e67e22",
-  "MANGA":"#e74c3c","ANIME":"#3498db","DỊ GIỚI":"#9b59b6",
-  "SINH TỒN":"#c0392b","ĐÔ THỊ":"#2c3e50","TRINH THÁM":"#f39c12",
-  "KHOA HỌC":"#1abc9c","LỊCH SỬ":"#cd853f","MẠT THẾ":"#922b21",
+  "HUYỀN HUYỄN":"#8b4513","TIÊN HIỆP":"#a0522d","ISEKAI":"#4a6741",
+  "FANTASY":"#6b4c6e","DARK FANTASY":"#5c2a2a","SLICE OF LIFE":"#5f7a5f",
+  "NÔNG TRẠI":"#6b7a3d","XÂY DỰNG":"#8b7355","MANHWA":"#8b6914",
+  "MANGA":"#a0522d","ANIME":"#4a6d8c","DỊ GIỚI":"#6b4c6e",
+  "SINH TỒN":"#7a3b3b","ĐÔ THỊ":"#4a5568","TRINH THÁM":"#8b7355",
+  "KHOA HỌC":"#4a6d6d","LỊCH SỬ":"#8b6914","MẠT THẾ":"#6b3a3a",
 };
 
 const STORIES = [
@@ -82,12 +82,55 @@ VÍ DỤ LỰA CHỌN TỆ (TUYỆT ĐỐI KHÔNG VIẾT):
 // AI API
 // ═══════════════════════════════════════════════════════
 async function callAI(messages) {
-  // Giới hạn lịch sử chat — giữ 20 messages gần nhất để tránh lỗi 400
-  const trimmed = messages.length > 20 
-    ? [messages[0], ...messages.slice(-19)]  // Giữ prompt đầu + 19 messages cuối
-    : messages;
+  // Lọc bỏ messages lỗi khỏi lịch sử (nội dung bắt đầu bằng ⚠ hoặc "Lỗi")
+  const clean = messages.filter(m => m.role === "user" || (m.role === "assistant" && !m.content?.startsWith("⚠") && !m.content?.startsWith("Lỗi")));
+  // Đảm bảo xen kẽ user/assistant đúng format
+  const fixed = [];
+  for (let i = 0; i < clean.length; i++) {
+    if (i === 0 && clean[i].role !== "user") continue;
+    if (fixed.length > 0 && fixed[fixed.length-1].role === clean[i].role) continue;
+    fixed.push(clean[i]);
+  }
+  // Đảm bảo kết thúc bằng user message
+  const msgs = fixed.length > 0 && fixed[fixed.length-1].role === "user" ? fixed : 
+    fixed.length > 0 ? [...fixed, {role:"user",content:"Tiếp tục câu chuyện."}] : 
+    [{role:"user",content:messages[0]?.content || "Viết chương tiếp theo."}];
+  // Giới hạn 16 messages
+  const trimmed = msgs.length > 16 ? [msgs[0], ...msgs.slice(-15)] : msgs;
 
-  // Thử gọi không cần key (Claude.ai artifact)
+  // Nếu có API key → gọi trực tiếp (tránh CORS error)
+  const apiKey = LS("tai-apikey", "");
+  if (apiKey) {
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1024, system: SYSTEM_PROMPT, messages: trimmed }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        return d.content?.map(c => c.text || "").join("\n") || "...";
+      }
+      if (r.status === 401) return "⚠ API Key không hợp lệ. Kiểm tra lại trong Admin Panel.";
+      if (r.status === 429) return "⚠ Hết lượt gọi. Đợi vài phút rồi thử lại.";
+      if (r.status === 400) {
+        // Thử lại với prompt ngắn nhất
+        try {
+          const last = trimmed.filter(m=>m.role==="user").pop();
+          const retry = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
+            body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1024, system: SYSTEM_PROMPT, messages: [{role:"user",content:last?.content||"Viết tiếp câu chuyện."}] }),
+          });
+          if (retry.ok) { const d2 = await retry.json(); return d2.content?.map(c=>c.text||"").join("\n")||"..."; }
+        } catch(e2) {}
+        return "⚠ Lỗi dữ liệu. Bấm ↻ để bắt đầu lại truyện.";
+      }
+      return "Lỗi API: " + r.status;
+    } catch(e) { return "Lỗi kết nối: " + e.message; }
+  }
+
+  // Không có key → thử gọi không key (chỉ hoạt động trong Claude.ai artifact)
   try {
     const r1 = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -99,29 +142,9 @@ async function callAI(messages) {
       const txt = d.content?.map(c => c.text || "").join("\n");
       if (txt) return txt;
     }
-  } catch(e) { /* fallback below */ }
+  } catch(e) { /* CORS on Vercel — bình thường */ }
 
-  // Thử gọi có API key (Vercel deploy)
-  const apiKey = LS("tai-apikey", "");
-  if (apiKey) {
-    try {
-      const r2 = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1024, system: SYSTEM_PROMPT, messages: trimmed }),
-      });
-      if (r2.ok) {
-        const d = await r2.json();
-        return d.content?.map(c => c.text || "").join("\n") || "Lỗi...";
-      }
-      if (r2.status === 401) return "⚠ API Key không hợp lệ. Kiểm tra lại trong Admin Panel.";
-      if (r2.status === 429) return "⚠ Hết lượt gọi. Đợi vài phút rồi thử lại.";
-      if (r2.status === 400) return "⚠ Lỗi dữ liệu. Thử bấm ← quay lại và chọn truyện lại.";
-      return "Lỗi API: " + r2.status;
-    } catch(e) { return "Lỗi kết nối: " + e.message; }
-  }
-
-  return "⚠ Chưa kết nối được AI.\n\nAdmin cần vào Admin Panel → nhập API Key từ console.anthropic.com để truyện hoạt động.\n\nNếu bạn là người chơi, vui lòng liên hệ Admin.";
+  return "⚠ Chưa kết nối AI. Admin cần nhập API Key trong Admin Panel.";
 }
 
 function parseResponse(text) {
@@ -145,25 +168,26 @@ function parseResponse(text) {
 // THEME
 // ═══════════════════════════════════════════════════════
 const C = {
-  bg:"#111111", bg2:"#1a1a1a", bg3:"#222222",
-  gold:"#c8a84e", goldDark:"#a08030", goldLight:"#e0c878",
-  text:"#e8e4d8", textDim:"#8a8472", textMuted:"#5a5648",
-  border:"rgba(200,168,78,0.12)", borderHover:"rgba(200,168,78,0.3)",
-  red:"#c0392b", green:"#27ae60",
+  bg:"#f5efe3", bg2:"#ebe3d3", bg3:"#ddd4c2",
+  gold:"#8b2d2d", goldDark:"#6b1f1f", goldLight:"#a84444",
+  text:"#2a1f14", textDim:"#7a6b58", textMuted:"#a39882",
+  border:"rgba(90,70,50,0.15)", borderHover:"rgba(90,70,50,0.35)",
+  red:"#8b2d2d", green:"#4a6741",
+  ink:"#3d2b1f", parchment:"#f5efe3", accent:"#8b4513",
 };
 
 // ═══════════════════════════════════════════════════════
 // EQUIPPED ITEMS — visual data
 // ═══════════════════════════════════════════════════════
 const FRAME_STYLES = {
-  frame_gold: { border:"2px solid #c8a84e", boxShadow:"0 0 8px rgba(200,168,78,0.4)" },
-  frame_dragon: { border:"2px solid #27ae60", boxShadow:"0 0 8px rgba(39,174,96,0.4)" },
-  frame_fire: { border:"2px solid #e74c3c", boxShadow:"0 0 8px rgba(231,76,60,0.4)" },
+  frame_gold: { border:"2px solid #8b4513", boxShadow:"0 0 8px rgba(139,69,19,0.3)" },
+  frame_dragon: { border:"2px solid #4a6741", boxShadow:"0 0 8px rgba(74,103,65,0.3)" },
+  frame_fire: { border:"2px solid #8b2d2d", boxShadow:"0 0 8px rgba(139,45,45,0.3)" },
 };
 const TITLE_DATA = {
-  title_hero: { text:"Anh Hùng", color:"#3b82f6" },
-  title_king: { text:"Bá Vương", color:"#a855f7" },
-  title_immortal: { text:"Tiên Nhân", color:C.gold },
+  title_hero: { text:"Anh Hùng", color:"#4a6d8c" },
+  title_king: { text:"Bá Vương", color:"#6b4c6e" },
+  title_immortal: { text:"Tiên Nhân", color:"#8b4513" },
 };
 const FX_DATA = {
   fx_sparkle: { name:"sparkle", color:"rgba(255,215,0,0.6)", symbol:"*" },
@@ -176,7 +200,7 @@ function AvatarWithFrame({ size, fontSize }) {
   const eq = getEquipped();
   const frameStyle = eq.frame ? FRAME_STYLES[eq.frame] || {} : {};
   return (
-    <span style={{ width:size,height:size,borderRadius:"50%",background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:fontSize||10,color:"#111",flexShrink:0,...frameStyle }}>
+    <span style={{ width:size,height:size,borderRadius:"50%",background:`linear-gradient(135deg,${C.accent},#6b3410)`,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:fontSize||10,color:"#f5efe3",flexShrink:0,...frameStyle }}>
       {String.fromCodePoint(0x1F464)}
     </span>
   );
@@ -194,33 +218,34 @@ function TitleBadge() {
 // SMALL COMPONENTS
 // ═══════════════════════════════════════════════════════
 function Tag({ name }) {
-  return <span style={{ display:"inline-block",padding:"2px 10px",borderRadius:4,background:TAGS_COLORS[name]||"#555",color:"#fff",fontSize:10,fontWeight:700,letterSpacing:.5,marginRight:4,marginBottom:4 }}>{name}</span>;
+  const c = TAGS_COLORS[name]||"#7a6b58";
+  return <span style={{ display:"inline-block",padding:"2px 10px",borderRadius:3,background:c+"15",color:c,fontSize:10,fontWeight:600,letterSpacing:.3,marginRight:4,marginBottom:4,border:`1px solid ${c}30` }}>{name}</span>;
 }
 
 // Xu coin icon — thay thế 🪙 bị lỗi trên một số thiết bị
 function Coin({size}) {
   const s = size||14;
-  return <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:s,height:s,borderRadius:"50%",background:"linear-gradient(135deg,#d4a017,#b8860b)",color:"#fff",fontSize:s*0.6,fontWeight:800,lineHeight:1,flexShrink:0,border:"1px solid #e0c878"}}>$</span>;
+  return <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:s,height:s,borderRadius:"50%",background:"linear-gradient(135deg,#8b4513,#a0522d)",color:"#f5efe3",fontSize:s*0.6,fontWeight:800,lineHeight:1,flexShrink:0,border:"1px solid #6b3410"}}>$</span>;
 }
 
 function Navbar({ user, page, setPage, onLogout, xu }) {
   const [dd, setDd] = useState(false);
-  const nav = [{id:"home",icon:"🏠",l:"Trang chủ"},{id:"library",icon:"📚",l:"Kho truyện"},{id:"ranking",icon:"🏆",l:"Bảng xếp hạng"},{id:"events",icon:"🎉",l:"Sự kiện"},{id:"support",icon:"💬",l:"Hỗ trợ & Liên hệ"}];
+  const nav = [{id:"home",l:"Trang chủ"},{id:"library",l:"Thư viện"},{id:"ranking",l:"Xếp hạng"},{id:"events",l:"Sự kiện"},{id:"support",l:"Hỗ trợ"}];
   return (
-    <header style={{ position:"sticky",top:0,zIndex:200,background:C.bg,borderBottom:`1px solid ${C.border}`,height:48,display:"flex",alignItems:"center",padding:"0 20px",gap:6 }}>
-      <div onClick={()=>setPage("home")} style={{ display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginRight:12 }}>
-        <span style={{ fontSize:20 }}>📖</span>
-        <span style={{ fontFamily:"'Noto Serif Display',serif",fontSize:17,fontWeight:800,color:C.gold }}>StoryAI</span>
+    <header style={{ position:"sticky",top:0,zIndex:200,background:"linear-gradient(180deg,#ebe3d3,#f5efe3)",borderBottom:`2px solid ${C.accent}22`,height:52,display:"flex",alignItems:"center",padding:"0 20px",gap:8,boxShadow:"0 2px 12px rgba(90,70,50,0.06)" }}>
+      <div onClick={()=>setPage("home")} style={{ display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginRight:16 }}>
+        <span style={{ fontFamily:"'Noto Serif Display',serif",fontSize:22,fontWeight:800,color:C.ink,letterSpacing:-0.5 }}>墨</span>
+        <span style={{ fontFamily:"'Noto Serif Display',serif",fontSize:17,fontWeight:700,color:C.ink }}>TruyệnAI</span>
       </div>
-      <nav style={{ display:"flex",gap:2,flex:1,overflowX:"auto" }}>
+      <nav style={{ display:"flex",gap:0,flex:1,overflowX:"auto" }}>
         {nav.map(n=>(
-          <button key={n.id} onClick={()=>setPage(n.id)} style={{ background:"transparent",border:"none",color:page===n.id?C.gold:C.textDim,fontSize:12,fontWeight:500,padding:"6px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,borderRadius:6,whiteSpace:"nowrap" }}>{n.icon} {n.l}</button>
+          <button key={n.id} onClick={()=>setPage(n.id)} style={{ background:"transparent",border:"none",color:page===n.id?C.ink:C.textDim,fontSize:13,fontWeight:page===n.id?700:400,padding:"8px 14px",cursor:"pointer",borderRadius:0,whiteSpace:"nowrap",borderBottom:page===n.id?`2px solid ${C.accent}`:"2px solid transparent",fontFamily:"'Noto Serif Display',serif",letterSpacing:0.3 }}>{n.l}</button>
         ))}
       </nav>
       <div style={{ display:"flex",alignItems:"center",gap:12 }}>
-        <span style={{ fontSize:12,color:C.gold,fontWeight:700,display:"flex",alignItems:"center",gap:4 }}><Coin size={14}/> {xu} xu</span>
+        <span style={{ fontSize:12,color:C.accent,fontWeight:700,display:"flex",alignItems:"center",gap:4,fontFamily:"'Noto Serif Display',serif" }}><Coin size={14}/> {xu} xu</span>
         <div style={{ position:"relative" }}>
-          <button onClick={()=>setDd(!dd)} style={{ background:"transparent",border:`1px solid ${C.border}`,color:C.text,fontSize:12,fontWeight:500,padding:"5px 12px",borderRadius:8,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
+          <button onClick={()=>setDd(!dd)} style={{ background:C.bg2,border:`1px solid ${C.border}`,color:C.text,fontSize:12,fontWeight:500,padding:"5px 12px",borderRadius:8,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
             <AvatarWithFrame size={22} fontSize={10} />
             {user?.name}<TitleBadge /> <span style={{ fontSize:10 }}>▼</span>
           </button>
@@ -234,9 +259,9 @@ function Navbar({ user, page, setPage, onLogout, xu }) {
 function Dropdown({ user, xu, setPage, onLogout }) {
   const Item = ({icon,label,badge,onClick}) => (
     <button onClick={onClick} style={{ width:"100%",background:"transparent",border:"none",color:C.text,padding:"9px 16px",textAlign:"left",cursor:"pointer",display:"flex",alignItems:"center",gap:10,fontSize:13 }}
-      onMouseEnter={e=>e.currentTarget.style.background="rgba(200,168,78,0.06)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+      onMouseEnter={e=>e.currentTarget.style.background=C.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
       <span style={{fontSize:14,width:18}}>{icon}</span>{label}
-      {badge && <span style={{ marginLeft:"auto",background:C.red,color:"#fff",fontSize:9,fontWeight:700,borderRadius:10,padding:"1px 6px" }}>{badge}</span>}
+      {badge && <span style={{ marginLeft:"auto",background:C.red,color:"#f5efe3",fontSize:9,fontWeight:700,borderRadius:10,padding:"1px 6px" }}>{badge}</span>}
     </button>
   );
   const Sec = ({title,children}) => (
@@ -254,7 +279,7 @@ function Dropdown({ user, xu, setPage, onLogout }) {
           <div style={{ display:"flex",alignItems:"center",gap:4,marginTop:3 }}>
             <Coin size={14}/>
             <span style={{ fontSize:13,fontWeight:700,color:C.gold }}>{xu} xu</span>
-            <button onClick={()=>setPage("topup")} style={{ background:C.gold,border:"none",color:"#111",fontSize:10,fontWeight:700,borderRadius:4,padding:"1px 6px",cursor:"pointer",marginLeft:4 }}>+</button>
+            <button onClick={()=>setPage("topup")} style={{ background:C.gold,border:"none",color:"#f5efe3",fontSize:10,fontWeight:700,borderRadius:4,padding:"1px 6px",cursor:"pointer",marginLeft:4 }}>+</button>
           </div>
         </div>
       </div>
@@ -284,24 +309,24 @@ function Dropdown({ user, xu, setPage, onLogout }) {
 // ═══════════════════════════════════════════════════════
 function StoryCard({ story, onStart, onReset, saved }) {
   return (
-    <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,overflow:"hidden",transition:"all .25s" }}
-      onMouseEnter={e=>{e.currentTarget.style.borderColor=C.borderHover;e.currentTarget.style.transform="translateY(-2px)";}}
-      onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.transform="";}}>
-      <div style={{ padding:"14px 14px 0",display:"flex",flexWrap:"wrap",alignItems:"flex-start",gap:4 }}>
+    <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",transition:"all .25s",position:"relative" }}
+      onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent+"40";e.currentTarget.style.boxShadow="0 4px 20px rgba(90,70,50,0.08)";}}
+      onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.boxShadow="";}}>
+      {/* Top accent line */}
+      <div style={{ height:2,background:`linear-gradient(90deg,transparent,${C.accent}40,transparent)` }} />
+      <div style={{ padding:"16px 18px 0",display:"flex",flexWrap:"wrap",alignItems:"flex-start",gap:4 }}>
         <div style={{ flex:1,display:"flex",flexWrap:"wrap",gap:3 }}>{story.tags.map(t=><Tag key={t} name={t}/>)}</div>
-        <div style={{ display:"flex",alignItems:"center",gap:3,color:C.textDim,fontSize:11 }}>♡ {story.likes} ▸</div>
       </div>
-      <div style={{ padding:"10px 14px" }}>
-        <h3 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:16,fontWeight:700,color:C.text,marginBottom:8,lineHeight:1.35 }}>{story.title}</h3>
-        <p style={{ fontSize:12,color:C.textDim,lineHeight:1.55,display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical",overflow:"hidden",minHeight:52 }}>{story.desc}</p>
+      <div style={{ padding:"12px 18px" }}>
+        <h3 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:17,fontWeight:700,color:C.ink,marginBottom:10,lineHeight:1.4 }}>{story.title}</h3>
+        <p style={{ fontSize:13,color:C.textDim,lineHeight:1.65,display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical",overflow:"hidden",minHeight:52 }}>{story.desc}</p>
       </div>
-      <div style={{ padding:"0 14px 10px",display:"flex",gap:14,fontSize:11,color:C.textMuted }}>
-        <span>👥 {story.plays} lượt chơi</span><span>♡ {story.likes} yêu thích</span>
+      <div style={{ padding:"0 18px 10px",display:"flex",gap:14,fontSize:11,color:C.textMuted }}>
+        <span>▸ {story.plays} lượt</span><span>♡ {story.likes}</span>
       </div>
-      <div style={{ padding:"0 14px 14px",display:"flex",gap:8 }}>
-        <button onClick={()=>onStart(story)} style={{ flex:1,background:"transparent",border:`1.5px solid ${C.gold}`,color:C.gold,padding:"10px 16px",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>{saved?"▶ Đọc tiếp":"⚔ Bắt đầu"}</button>
-        {saved && <button onClick={()=>onReset(story)} style={{ background:"transparent",border:`1.5px solid ${C.border}`,color:C.textDim,padding:"10px 12px",borderRadius:10,cursor:"pointer",fontSize:11,fontWeight:600 }}>↻ Lại</button>}
-        <button style={{ width:42,background:"transparent",border:`1.5px solid ${C.border}`,color:C.textDim,borderRadius:10,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center" }}>☆</button>
+      <div style={{ padding:"0 18px 16px",display:"flex",gap:8 }}>
+        <button onClick={()=>onStart(story)} style={{ flex:1,background:saved?`linear-gradient(135deg,${C.accent},${C.ink})`:"transparent",border:saved?"none":`1.5px solid ${C.accent}40`,color:saved?"#f5efe3":C.accent,padding:"11px 16px",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'Noto Serif Display',serif" }}>{saved?"▶ Đọc tiếp":"⚔ Bắt đầu"}</button>
+        {saved && <button onClick={()=>onReset(story)} style={{ background:"transparent",border:`1.5px solid ${C.border}`,color:C.textDim,padding:"11px 12px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600 }}>↻</button>}
       </div>
     </div>
   );
@@ -392,7 +417,7 @@ function LoginScreen({ onLogin }) {
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:"'Inter',sans-serif" }}>
       <div style={{ maxWidth:420, width:"100%", textAlign:"center" }}>
         <div onClick={handleLogoClick} style={{ cursor:"default", marginBottom:8, userSelect:"none" }}>
-          <span style={{ fontFamily:"'Noto Serif Display',serif", fontSize:34, fontWeight:800, color:C.gold }}>📖 StoryAI</span>
+          <span style={{ fontFamily:"'Noto Serif Display',serif", fontSize:34, fontWeight:800, color:C.gold }}>墨 TruyệnAI</span>
         </div>
         <p style={{ color:C.textDim, fontSize:14, marginBottom:32 }}>Bắt đầu hành trình của bạn</p>
 
@@ -406,7 +431,7 @@ function LoginScreen({ onLogin }) {
               <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" type={showPw?"text":"password"} onKeyDown={e=>e.key==="Enter"&&handleLogin()} style={{ ...inputStyle, paddingRight:42 }} />
               <button onClick={()=>setShowPw(!showPw)} style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", background:"transparent", border:"none", color:C.textDim, fontSize:16, cursor:"pointer", padding:4 }}>{showPw?"🙈":"👁"}</button>
             </div>
-            <button onClick={handleLogin} style={{ width:"100%", background:`linear-gradient(135deg, ${C.gold}, ${C.goldDark})`, border:"none", color:"#111", padding:"14px", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer", marginBottom:20 }}>Đăng nhập</button>
+            <button onClick={handleLogin} style={{ width:"100%", background:`linear-gradient(135deg, ${C.gold}, ${C.goldDark})`, border:"none", color:"#f5efe3", padding:"14px", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer", marginBottom:20 }}>Đăng nhập</button>
             <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
               <div style={{ flex:1, height:1, background:C.border }} /><span style={{ color:C.textMuted, fontSize:12 }}>hoặc</span><div style={{ flex:1, height:1, background:C.border }} />
             </div>
@@ -430,7 +455,7 @@ function LoginScreen({ onLogin }) {
               <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Tối thiểu 4 ký tự" type={showPw?"text":"password"} onKeyDown={e=>e.key==="Enter"&&handleRegister()} style={{ ...inputStyle, paddingRight:42 }} />
               <button onClick={()=>setShowPw(!showPw)} style={{ position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"transparent",border:"none",color:C.textDim,fontSize:16,cursor:"pointer",padding:4 }}>{showPw?"🙈":"👁"}</button>
             </div>
-            <button onClick={handleRegister} style={{ width:"100%", background:`linear-gradient(135deg, ${C.gold}, ${C.goldDark})`, border:"none", color:"#111", padding:"14px", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer", marginBottom:20 }}>Đăng ký</button>
+            <button onClick={handleRegister} style={{ width:"100%", background:`linear-gradient(135deg, ${C.gold}, ${C.goldDark})`, border:"none", color:"#f5efe3", padding:"14px", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer", marginBottom:20 }}>Đăng ký</button>
             <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
               <div style={{ flex:1,height:1,background:C.border }}/><span style={{ color:C.textMuted,fontSize:12 }}>hoặc</span><div style={{ flex:1,height:1,background:C.border }}/>
             </div>
@@ -443,13 +468,13 @@ function LoginScreen({ onLogin }) {
         )}
 
         {view === "admin" && (
-          <div style={{ background:C.bg2, border:`1px solid rgba(192,57,43,0.25)`, borderRadius:18, padding:"32px 28px", textAlign:"left" }}>
+          <div style={{ background:C.bg2, border:`1px solid rgba(139,45,45,0.25)`, borderRadius:18, padding:"32px 28px", textAlign:"left" }}>
             <h2 style={{ fontFamily:"'Noto Serif Display',serif", fontSize:24, fontWeight:700, color:C.red, marginBottom:24 }}>Admin Login</h2>
             <label style={labelStyle}>Tên Admin</label>
             <input value={adminName} onChange={e=>setAdminName(e.target.value)} placeholder="Admin name" style={{ ...inputStyle, marginBottom:18 }} />
             <label style={labelStyle}>Mật khẩu Admin</label>
             <input type="password" value={adminKey} onChange={e=>setAdminKey(e.target.value)} placeholder="••••••" onKeyDown={e=>e.key==="Enter"&&handleAdmin()} style={{ ...inputStyle, marginBottom:24 }} />
-            <button onClick={handleAdmin} style={{ width:"100%",background:`linear-gradient(135deg,${C.red},#e74c3c)`,border:"none",color:"#fff",padding:"14px",borderRadius:12,fontSize:16,fontWeight:700,cursor:"pointer",marginBottom:16 }}>Đăng nhập Admin</button>
+            <button onClick={handleAdmin} style={{ width:"100%",background:`linear-gradient(135deg,${C.red},#5c2a2a)`,border:"none",color:"#f5efe3",padding:"14px",borderRadius:12,fontSize:16,fontWeight:700,cursor:"pointer",marginBottom:16 }}>Đăng nhập Admin</button>
             <p style={{ textAlign:"center",fontSize:13,color:C.textDim }}>
               <button onClick={()=>{setView("login");setErr("");}} style={{ background:"transparent",border:"none",color:C.textDim,fontSize:13,cursor:"pointer",padding:0 }}>← Quay lại</button>
             </p>
@@ -460,8 +485,8 @@ function LoginScreen({ onLogin }) {
         <div style={{ marginTop:28, textAlign:"center" }}>
           <p style={{ color:C.textDim, fontSize:13, marginBottom:12 }}>Cần hỗ trợ hoặc thảo luận?</p>
           <div style={{ display:"flex", gap:10, justifyContent:"center" }}>
-            <a href="#" onClick={e=>e.preventDefault()} style={{ display:"inline-flex",alignItems:"center",gap:6,background:"#1877F2",color:"#fff",padding:"10px 22px",borderRadius:24,fontSize:13,fontWeight:600,textDecoration:"none",cursor:"pointer" }}>Facebook</a>
-            <a href="#" onClick={e=>e.preventDefault()} style={{ display:"inline-flex",alignItems:"center",gap:6,background:"#5865F2",color:"#fff",padding:"10px 22px",borderRadius:24,fontSize:13,fontWeight:600,textDecoration:"none",cursor:"pointer" }}>Discord</a>
+            <a href="#" onClick={e=>e.preventDefault()} style={{ display:"inline-flex",alignItems:"center",gap:6,background:"#4a6d8c",color:"#f5efe3",padding:"10px 22px",borderRadius:24,fontSize:13,fontWeight:600,textDecoration:"none",cursor:"pointer" }}>Facebook</a>
+            <a href="#" onClick={e=>e.preventDefault()} style={{ display:"inline-flex",alignItems:"center",gap:6,background:"#6b4c6e",color:"#f5efe3",padding:"10px 22px",borderRadius:24,fontSize:13,fontWeight:600,textDecoration:"none",cursor:"pointer" }}>Discord</a>
           </div>
         </div>
       </div>
@@ -495,7 +520,7 @@ function UserManagement() {
         <div style={{ display:"flex",flexDirection:"column",gap:6,maxHeight:400,overflowY:"auto" }}>
           {filtered.map((u,i)=>(
             <div key={i} style={{ display:"flex",alignItems:"center",gap:10,background:C.bg3,borderRadius:10,padding:"10px 14px",opacity:u.banned?.5:1 }}>
-              <div style={{ width:34,height:34,borderRadius:"50%",background:u.method==="google"?"#4285F4":`linear-gradient(135deg,${C.gold},${C.goldDark})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#fff",flexShrink:0 }}>{u.method==="google"?"G":(u.name?.[0]||"?").toUpperCase()}</div>
+              <div style={{ width:34,height:34,borderRadius:"50%",background:u.method==="google"?"#4285F4":`linear-gradient(135deg,${C.gold},${C.goldDark})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#f5efe3",flexShrink:0 }}>{u.method==="google"?"G":(u.name?.[0]||"?").toUpperCase()}</div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{ fontSize:13,fontWeight:700,color:C.text }}>{u.name} {u.banned&&<span style={{fontSize:10,color:C.red}}>CẤM</span>} <span style={{fontSize:10,color:u.method==="google"?"#4285F4":C.textMuted}}>({u.method||"email"})</span></div>
                 <div style={{ fontSize:11,color:C.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{u.email}</div>
@@ -504,8 +529,8 @@ function UserManagement() {
               <div style={{ display:"flex",gap:4,flexShrink:0,alignItems:"center" }}>
                 <button onClick={()=>updateXu(u.email,100)} style={{ background:`${C.green}20`,border:`1px solid ${C.green}40`,color:C.green,padding:"3px 8px",borderRadius:6,fontSize:10,cursor:"pointer",fontWeight:700 }}>+100</button>
                 <input type="number" value={xuEdit[u.email]??""} onChange={e=>setXuEdit({...xuEdit,[u.email]:e.target.value})} placeholder={String(u.xu||0)} style={is} onKeyDown={e=>{if(e.key==="Enter"){setXuDirect(u.email,+(xuEdit[u.email]||0));setXuEdit({...xuEdit,[u.email]:""});}}} />
-                <button onClick={()=>toggleBan(u.email)} style={{ background:u.banned?`${C.green}20`:"rgba(192,57,43,0.12)",border:`1px solid ${u.banned?C.green+"40":"rgba(192,57,43,0.3)"}`,color:u.banned?C.green:C.red,padding:"3px 8px",borderRadius:6,fontSize:10,cursor:"pointer" }}>{u.banned?"Mở":"Cấm"}</button>
-                <button onClick={()=>deleteUser(u.email)} style={{ background:"rgba(192,57,43,0.12)",border:"1px solid rgba(192,57,43,0.3)",color:C.red,padding:"3px 6px",borderRadius:6,fontSize:10,cursor:"pointer" }}>X</button>
+                <button onClick={()=>toggleBan(u.email)} style={{ background:u.banned?`${C.green}20`:"rgba(139,45,45,0.12)",border:`1px solid ${u.banned?C.green+"40":"rgba(139,45,45,0.3)"}`,color:u.banned?C.green:C.red,padding:"3px 8px",borderRadius:6,fontSize:10,cursor:"pointer" }}>{u.banned?"Mở":"Cấm"}</button>
+                <button onClick={()=>deleteUser(u.email)} style={{ background:"rgba(139,45,45,0.12)",border:"1px solid rgba(139,45,45,0.3)",color:C.red,padding:"3px 6px",borderRadius:6,fontSize:10,cursor:"pointer" }}>X</button>
               </div>
             </div>
           ))}
@@ -536,7 +561,7 @@ function GoogleConfig({ inputS }) {
       </div>
       <div style={{ display:"flex",gap:8 }}>
         <input value={clientId} onChange={e=>setClientId(e.target.value)} placeholder="xxxxx.apps.googleusercontent.com" style={{...inputS,flex:1,fontSize:11}} />
-        <button onClick={save} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#111",padding:"8px 18px",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13 }}>Lưu</button>
+        <button onClick={save} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#f5efe3",padding:"8px 18px",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13 }}>Lưu</button>
       </div>
       {clientId && <p style={{ color:C.green,fontSize:11,marginTop:8 }}>Nút "Đăng nhập bằng Google" đã hoạt động</p>}
     </div>
@@ -580,7 +605,7 @@ function BankConfig({ inputS }) {
         </div>
       </div>
       <div style={{ display:"flex",gap:8,alignItems:"center" }}>
-        <button onClick={save} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#111",padding:"8px 18px",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13 }}>💾 Lưu</button>
+        <button onClick={save} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#f5efe3",padding:"8px 18px",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13 }}>💾 Lưu</button>
         {bank.accountNo && (
           <span style={{ fontSize:11,color:C.green }}>✅ QR sẽ tự tạo khi user nạp xu</span>
         )}
@@ -642,7 +667,7 @@ function AdminPanel() {
         <div style={{ display:"flex",gap:8 }}>
           <input type={showKey?"text":"password"} value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="sk-ant-api03-xxxxxxxxxxxx..." style={{...inputS,flex:1,fontFamily:"monospace",fontSize:12}} />
           <button onClick={()=>setShowKey(!showKey)} style={{...inputS,cursor:"pointer",color:C.textDim,border:`1px solid ${C.border}` }}>{showKey?"🙈":"👁"}</button>
-          <button onClick={saveApiKey} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#111",padding:"8px 18px",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13 }}>💾 Lưu</button>
+          <button onClick={saveApiKey} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#f5efe3",padding:"8px 18px",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13 }}>💾 Lưu</button>
         </div>
         {apiKey && <p style={{ color:C.green,fontSize:11,marginTop:8 }}>✅ API Key đã được cấu hình</p>}
       </div>
@@ -668,7 +693,7 @@ function AdminPanel() {
             <label style={{ display:"block",fontSize:11,color:C.textDim,marginBottom:4,fontWeight:600 }}>Số lượng</label>
             <input type="number" value={newCount} onChange={e=>setNewCount(Math.max(1,+e.target.value))} style={{...inputS,width:80}} />
           </div>
-          <button onClick={generateTokens} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#111",padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer" }}>✨ Tạo Token</button>
+          <button onClick={generateTokens} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#f5efe3",padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer" }}>✨ Tạo Token</button>
         </div>
       </div>
 
@@ -682,7 +707,7 @@ function AdminPanel() {
                 <code style={{ flex:1,fontSize:14,fontWeight:700,color:C.gold,letterSpacing:1 }}>{t.code}</code>
                 <span style={{ fontSize:11,color:C.textDim }}>🪙 {t.xu}</span>
                 <button onClick={()=>copyToken(t.code)} style={{ background:`${C.gold}20`,border:`1px solid ${C.gold}40`,color:C.gold,padding:"4px 10px",borderRadius:6,fontSize:11,cursor:"pointer",fontWeight:600 }}>📋 Copy</button>
-                <button onClick={()=>deleteToken(t.code)} style={{ background:"rgba(192,57,43,0.12)",border:"1px solid rgba(192,57,43,0.3)",color:C.red,padding:"4px 8px",borderRadius:6,fontSize:11,cursor:"pointer" }}>✕</button>
+                <button onClick={()=>deleteToken(t.code)} style={{ background:"rgba(139,45,45,0.12)",border:"1px solid rgba(139,45,45,0.3)",color:C.red,padding:"4px 8px",borderRadius:6,fontSize:11,cursor:"pointer" }}>✕</button>
               </div>
             ))}
           </div>
@@ -875,7 +900,7 @@ function TopUpPage({ xu, onAddXu, user }) {
             </div>
 
             {/* Payment button */}
-            <button onClick={()=>{}} style={{ width:"100%",marginTop:20,background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#111",padding:"14px",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer" }}>
+            <button onClick={()=>{}} style={{ width:"100%",marginTop:20,background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#f5efe3",padding:"14px",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer" }}>
               💳 Thanh toán
             </button>
             <p style={{ textAlign:"center",color:C.textMuted,fontSize:11,marginTop:8 }}>Bấm vào gói xu → Quét QR để thanh toán</p>
@@ -887,7 +912,7 @@ function TopUpPage({ xu, onAddXu, user }) {
       {tab==="profile2" && (
         <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:24 }}>
           <div style={{ display:"flex",alignItems:"center",gap:16,marginBottom:20 }}>
-            <div style={{ width:60,height:60,borderRadius:"50%",background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,color:"#111" }}>👤</div>
+            <div style={{ width:60,height:60,borderRadius:"50%",background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,color:"#f5efe3" }}>👤</div>
             <div>
               <div style={{ fontSize:20,fontWeight:700,color:C.text }}>{user?.name}</div>
               <div style={{ fontSize:13,color:C.textDim }}>Vai trò: {user?.isAdmin?"Admin":"Người chơi"}</div>
@@ -1045,7 +1070,7 @@ Viết chương mở đầu thật hấp dẫn cho câu chuyện này. Nhớ k�
                 <span style={{ fontSize:11, color:C.gold, fontWeight:600 }}>{genre || "Tự do"}</span>
               </div>
             </div>
-            <div style={{ fontSize:15, lineHeight:1.9, color:"rgba(232,228,216,0.85)", whiteSpace:"pre-wrap", marginBottom:16 }}>{preview.narrative}</div>
+            <div style={{ fontSize:15, lineHeight:1.9, color:C.ink, whiteSpace:"pre-wrap", marginBottom:16 }}>{preview.narrative}</div>
             <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:8, textAlign:"center" }}>Lựa chọn mở đầu</div>
             {preview.choices.map((c,i) => (
               <div key={i} style={{ background:C.bg3, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 14px", marginBottom:6, fontSize:13, color:C.text }}>
@@ -1056,7 +1081,7 @@ Viết chương mở đầu thật hấp dẫn cho câu chuyện này. Nhớ k�
 
           <div style={{ display:"flex", gap:12 }}>
             <button onClick={()=>setPreview(null)} style={{ flex:"0 0 auto", background:C.bg2, border:`1px solid ${C.border}`, color:C.textDim, padding:"14px 20px", borderRadius:12, fontSize:14, fontWeight:600, cursor:"pointer" }}>← Chỉnh sửa</button>
-            <button onClick={startStory} style={{ flex:1, background:`linear-gradient(135deg,${C.gold},${C.goldDark})`, border:"none", color:"#111", padding:"14px", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer" }}>Bắt đầu phiêu lưu</button>
+            <button onClick={startStory} style={{ flex:1, background:`linear-gradient(135deg,${C.gold},${C.goldDark})`, border:"none", color:"#f5efe3", padding:"14px", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer" }}>Bắt đầu phiêu lưu</button>
           </div>
         </div>
       )}
@@ -1178,9 +1203,9 @@ function CharacterCreation({ story, xu, onSpendXu, onStartWithChar, onBack }) {
       {step === "sheet" && charData && (
         <>
           {/* Rank Banner */}
-          <div style={{ background:"linear-gradient(135deg, rgba(39,70,35,0.4), rgba(20,40,20,0.6))", border:`1px solid rgba(80,140,60,0.3)`, borderRadius:16, padding:"28px 20px", textAlign:"center", marginBottom:16 }}>
+          <div style={{ background:"linear-gradient(135deg, rgba(74,103,65,0.15), rgba(74,103,65,0.08))", border:`1px solid rgba(74,103,65,0.25)`, borderRadius:16, padding:"28px 20px", textAlign:"center", marginBottom:16 }}>
             <div style={{ fontSize:36, marginBottom:6 }}>🛡</div>
-            <h3 style={{ fontFamily:"'Noto Serif Display',serif", fontSize:22, fontWeight:700, color:"#7cb342", marginBottom:6 }}>{charData.rank}</h3>
+            <h3 style={{ fontFamily:"'Noto Serif Display',serif", fontSize:22, fontWeight:700, color:"#4a6741", marginBottom:6 }}>{charData.rank}</h3>
             <p style={{ fontSize:13, color:C.textDim }}>{charData.rankDesc}</p>
           </div>
 
@@ -1231,8 +1256,8 @@ function CharacterCreation({ story, xu, onSpendXu, onStartWithChar, onBack }) {
               <span>🎒</span> Hành Trang <span style={{ background:C.bg3, borderRadius:6, padding:"1px 8px", fontSize:11, color:C.textDim }}>{charData.items?.length||0}</span>
             </div>
             {(charData.items||[]).map((it,i) => (
-              <div key={i} style={{ background:C.bg2, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 14px", marginBottom:6, display:"flex", alignItems:"center", gap:12, borderLeft:"3px solid #8e44ad" }}>
-                <span style={{ fontSize:14, fontWeight:700, color:"#bb86fc" }}>{it.name}</span>
+              <div key={i} style={{ background:C.bg2, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 14px", marginBottom:6, display:"flex", alignItems:"center", gap:12, borderLeft:"3px solid #6b4c6e" }}>
+                <span style={{ fontSize:14, fontWeight:700, color:"#6b4c6e" }}>{it.name}</span>
                 <span style={{ fontSize:12, color:C.textDim, flex:1 }}>{it.desc}</span>
                 {it.qty > 1 && <span style={{ background:C.bg3, borderRadius:6, padding:"2px 8px", fontSize:11, color:C.gold }}>x{it.qty}</span>}
               </div>
@@ -1242,7 +1267,7 @@ function CharacterCreation({ story, xu, onSpendXu, onStartWithChar, onBack }) {
           {/* Backstory */}
           <div style={{ background:C.bg2, border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px", marginBottom:24 }}>
             <div style={{ fontSize:11, fontWeight:700, color:C.textMuted, letterSpacing:1, textTransform:"uppercase", marginBottom:8 }}>Tiểu sử</div>
-            <p style={{ fontSize:14, color:"rgba(232,228,216,0.8)", lineHeight:1.7 }}>{charData.backstory}</p>
+            <p style={{ fontSize:14, color:C.textDim, lineHeight:1.7 }}>{charData.backstory}</p>
           </div>
 
           {/* Action Buttons */}
@@ -1253,7 +1278,7 @@ function CharacterCreation({ story, xu, onSpendXu, onStartWithChar, onBack }) {
               display:"flex", alignItems:"center", gap:6,
             }}>🔄 Roll lại ({ROLL_COST} xu)</button>
             <button onClick={handleStart} style={{
-              flex:1, background:`linear-gradient(135deg,${C.gold},${C.goldDark})`, border:"none", color:"#111",
+              flex:1, background:`linear-gradient(135deg,${C.gold},${C.goldDark})`, border:"none", color:"#f5efe3",
               padding:"14px", borderRadius:12, fontSize:16, fontWeight:700, cursor:"pointer",
               display:"flex", alignItems:"center", justifyContent:"center", gap:8,
             }}>⚔ Khởi tạo chương đầu ({START_COST} xu)</button>
@@ -1331,9 +1356,9 @@ function StoryReader({ story, onBack, onReset, xu, onSpendXu, savedData, onSave,
   };
 
   const choiceStyles = [
-    {bg:`${C.gold}08`,border:`${C.gold}30`,hover:`${C.gold}18`,badge:`linear-gradient(135deg,${C.gold},${C.goldDark})`,badgeC:"#111"},
-    {bg:"rgba(192,57,43,0.06)",border:"rgba(192,57,43,0.25)",hover:"rgba(192,57,43,0.12)",badge:"linear-gradient(135deg,#c0392b,#e74c3c)",badgeC:"#fff"},
-    {bg:"rgba(142,68,173,0.06)",border:"rgba(142,68,173,0.25)",hover:"rgba(142,68,173,0.12)",badge:"linear-gradient(135deg,#8e44ad,#9b59b6)",badgeC:"#fff"},
+    {bg:`${C.accent}06`,border:`${C.accent}25`,hover:`${C.accent}12`,badge:`linear-gradient(135deg,${C.accent},${C.ink})`,badgeC:"#f5efe3"},
+    {bg:"rgba(139,45,45,0.06)",border:"rgba(139,45,45,0.2)",hover:"rgba(139,45,45,0.1)",badge:"linear-gradient(135deg,#8b2d2d,#5c2a2a)",badgeC:"#f5efe3"},
+    {bg:"rgba(74,103,65,0.06)",border:"rgba(74,103,65,0.2)",hover:"rgba(74,103,65,0.1)",badge:"linear-gradient(135deg,#4a6741,#3d5636)",badgeC:"#f5efe3"},
   ];
 
   return (
@@ -1360,7 +1385,7 @@ function StoryReader({ story, onBack, onReset, xu, onSpendXu, savedData, onSave,
           return (
             <div key={i} style={{ marginBottom:20 }}>
               <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 20px",marginBottom:14 }}>
-                <div style={{ fontSize:15,lineHeight:1.9,color:"rgba(232,228,216,0.85)",whiteSpace:"pre-wrap" }}>{seg.narrative}</div>
+                <div style={{ fontSize:15,lineHeight:1.9,color:C.ink,whiteSpace:"pre-wrap" }}>{seg.narrative}</div>
               </div>
               {i===segments.length-1 && !loading && seg.choices && (
                 <div>
@@ -1379,7 +1404,7 @@ function StoryReader({ story, onBack, onReset, xu, onSpendXu, savedData, onSave,
                       );
                     })}
                   </div>
-                  {xu<XU_PER_CHAPTER&&(<div style={{ marginTop:10,textAlign:"center",padding:12,background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.25)",borderRadius:10 }}><span style={{color:C.red,fontSize:13,fontWeight:600}}>⚠ Hết xu! Vui lòng nạp thêm</span></div>)}
+                  {xu<XU_PER_CHAPTER&&(<div style={{ marginTop:10,textAlign:"center",padding:12,background:"rgba(139,45,45,0.1)",border:"1px solid rgba(139,45,45,0.25)",borderRadius:10 }}><span style={{color:C.red,fontSize:13,fontWeight:600}}>⚠ Hết xu! Vui lòng nạp thêm</span></div>)}
                   {/* Custom action input */}
                   <div style={{ marginTop:14,background:C.bg3,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px" }}>
                     <div style={{ fontSize:11,color:C.textMuted,marginBottom:6,fontWeight:600 }}>✍ Hoặc tự viết hành động / gợi ý cho AI:</div>
@@ -1514,7 +1539,7 @@ function MissionsPage({ xu, onAddXu }) {
                 {isClaimed ? (
                   <span style={{ background:`${C.green}20`,color:C.green,padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700 }}>Đã nhận</span>
                 ) : canClaim ? (
-                  <button onClick={()=>claimMission(m)} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#111",padding:"8px 16px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
+                  <button onClick={()=>claimMission(m)} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#f5efe3",padding:"8px 16px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
                     <Coin size={14}/> Nhan +{m.reward}
                   </button>
                 ) : (
@@ -1658,7 +1683,7 @@ function ShopPage({ xu, onSpendXu }) {
               {isOwned?(
                 <div style={{ background:`${C.green}15`,color:C.green,padding:"7px",borderRadius:8,fontSize:12,fontWeight:700 }}>Đã sở hữu</div>
               ):(
-                <button onClick={()=>buy(it)} style={{ width:"100%",background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#111",padding:"8px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer" }}>{it.price} xu</button>
+                <button onClick={()=>buy(it)} style={{ width:"100%",background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#f5efe3",padding:"8px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer" }}>{it.price} xu</button>
               )}
             </div>
           );
@@ -1831,10 +1856,10 @@ function CollectionPage() {
             {characters.map((ch,i)=>(
               <div key={i} style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 20px" }}>
                 <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:10 }}>
-                  <div style={{ width:48,height:48,borderRadius:12,background:"linear-gradient(135deg,rgba(39,70,35,0.5),rgba(20,40,20,0.7))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>🛡</div>
+                  <div style={{ width:48,height:48,borderRadius:12,background:"linear-gradient(135deg,rgba(74,103,65,0.12),rgba(74,103,65,0.06))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0 }}>🛡</div>
                   <div style={{flex:1}}>
                     <div style={{ fontSize:16,fontWeight:700,color:C.text }}>{ch.name} <span style={{fontSize:12,color:C.textDim,fontWeight:400}}>({ch.gender})</span></div>
-                    <div style={{ fontSize:12,color:"#7cb342",fontWeight:600 }}>{ch.rank}</div>
+                    <div style={{ fontSize:12,color:"#4a6741",fontWeight:600 }}>{ch.rank}</div>
                     <div style={{ fontSize:11,color:C.textDim }}>Truyện: {ch.storyTitle}</div>
                   </div>
                 </div>
@@ -1953,7 +1978,7 @@ function SettingsPage() {
           <span style={{fontSize:12,color:C.green,fontWeight:600}}>✓ Đang dùng</span>
         </Row>
         <Row icon="🗑" label="Xóa toàn bộ dữ liệu" desc="Xóa tất cả tiến trình, xu, cài đặt">
-          <button onClick={()=>{if(confirm("Xác nhận xóa toàn bộ?")){localStorage.clear();location.reload();}}} style={{ background:"rgba(192,57,43,0.12)",border:"1px solid rgba(192,57,43,0.3)",color:C.red,padding:"6px 14px",borderRadius:8,fontSize:12,cursor:"pointer",fontWeight:600 }}>Xóa</button>
+          <button onClick={()=>{if(confirm("Xác nhận xóa toàn bộ?")){localStorage.clear();location.reload();}}} style={{ background:"rgba(139,45,45,0.12)",border:"1px solid rgba(139,45,45,0.3)",color:C.red,padding:"6px 14px",borderRadius:8,fontSize:12,cursor:"pointer",fontWeight:600 }}>Xóa</button>
         </Row>
       </div>
     </div>
@@ -1968,29 +1993,30 @@ function HomePage({ onStart, onReset, savedProgress, setPage }) {
   const filtered = search ? STORIES.filter(s=>s.title.toLowerCase().includes(search.toLowerCase())||s.tags.some(t=>t.toLowerCase().includes(search.toLowerCase()))) : STORIES;
   return (
     <>
-      <section style={{ textAlign:"center",padding:"48px 20px 24px",position:"relative" }}>
-        <div style={{ position:"absolute",inset:0,background:"radial-gradient(ellipse at 50% 0%,rgba(200,168,78,0.06) 0%,transparent 60%)",pointerEvents:"none" }} />
-        <div style={{ display:"inline-block",padding:"4px 14px",borderRadius:6,border:`1px solid ${C.gold}40`,color:C.gold,fontSize:11,fontWeight:600,marginBottom:16,background:`${C.gold}08` }}>🏆 TIỂU THUYẾT TƯƠNG TÁC</div>
-        <h1 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:"clamp(28px,5vw,44px)",fontWeight:800,color:C.text,marginBottom:10,lineHeight:1.2 }}>Chọn thế giới</h1>
-        <p style={{ color:C.textDim,fontSize:14,maxWidth:480,margin:"0 auto 28px",lineHeight:1.6 }}>Mỗi lựa chọn thay đổi cốt truyện<br/>Cập nhật thêm thế giới mới hàng tuần</p>
-        <button onClick={()=>setPage("customstory")} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`, border:"none", color:"#111", padding:"12px 28px", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", marginBottom:8 }}>✍ Tạo câu chuyện của bạn</button>
+      <section style={{ textAlign:"center",padding:"52px 20px 28px",position:"relative",background:"linear-gradient(180deg,#ebe3d3 0%,#f5efe3 100%)" }}>
+        <div style={{ position:"absolute",inset:0,backgroundImage:"radial-gradient(circle at 20% 50%,rgba(139,69,19,0.03) 0%,transparent 50%),radial-gradient(circle at 80% 30%,rgba(139,45,45,0.03) 0%,transparent 50%)",pointerEvents:"none" }} />
+        {/* Decorative line */}
+        <div style={{ width:60,height:2,background:`linear-gradient(90deg,transparent,${C.accent}60,transparent)`,margin:"0 auto 16px" }} />
+        <div style={{ display:"inline-block",padding:"4px 18px",borderRadius:3,border:`1px solid ${C.accent}30`,color:C.accent,fontSize:11,fontWeight:600,marginBottom:20,background:`${C.accent}06`,fontFamily:"'Noto Serif Display',serif",letterSpacing:2 }}>書 TIỂU THUYẾT TƯƠNG TÁC</div>
+        <h1 style={{ fontFamily:"'Noto Serif Display',serif",fontSize:"clamp(28px,5vw,42px)",fontWeight:700,color:C.ink,marginBottom:12,lineHeight:1.2,letterSpacing:-0.5 }}>Mỗi trang sách<br/>một thế giới mới</h1>
+        <p style={{ color:C.textDim,fontSize:14,maxWidth:420,margin:"0 auto 28px",lineHeight:1.7,fontFamily:"'Noto Serif Display',serif" }}>Bạn là nhân vật chính — mỗi lựa chọn<br/>dẫn đến vận mệnh khác nhau</p>
+        <button onClick={()=>setPage("customstory")} style={{ background:`linear-gradient(135deg,${C.accent},${C.ink})`, border:"none", color:"#f5efe3", padding:"13px 32px", borderRadius:8, fontSize:14, fontWeight:600, cursor:"pointer", marginBottom:10, fontFamily:"'Noto Serif Display',serif", letterSpacing:0.5 }}>✍ Tạo câu chuyện của bạn</button>
         <p style={{ color:C.textMuted, fontSize:11 }}>Hoặc chọn từ thư viện bên dưới</p>
+        <div style={{ width:60,height:2,background:`linear-gradient(90deg,transparent,${C.accent}40,transparent)`,margin:"20px auto 0" }} />
       </section>
       <div style={{ maxWidth:640,margin:"0 auto 28px",padding:"0 20px" }}>
         <div style={{ display:"flex",gap:8 }}>
           <div style={{ flex:1,position:"relative" }}>
-            <span style={{ position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.textMuted }}>🔍</span>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Tìm theo tên thế giới..." style={{ width:"100%",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px 12px 40px",color:C.text,fontSize:14,boxSizing:"border-box",outline:"none" }} />
+            <span style={{ position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:13,color:C.textMuted }}>🔍</span>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Tìm theo tên truyện hoặc thể loại..." style={{ width:"100%",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:8,padding:"12px 14px 12px 38px",color:C.text,fontSize:13,boxSizing:"border-box",outline:"none",fontFamily:"'Inter',sans-serif" }} />
           </div>
-          <button style={{ background:C.bg2,border:`1px solid ${C.border}`,color:C.gold,padding:"0 16px",borderRadius:12,cursor:"pointer",fontSize:13,fontWeight:600 }}>🔍 Tìm</button>
-          <button style={{ background:C.bg2,border:`1px solid ${C.border}`,color:C.textDim,padding:"0 14px",borderRadius:12,cursor:"pointer",fontSize:16 }}>☰</button>
         </div>
       </div>
       <div style={{ maxWidth:1100,margin:"0 auto",padding:"0 20px 60px" }}>
         <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:18 }}>
           {filtered.map(s=><StoryCard key={s.id} story={s} onStart={onStart} onReset={onReset} saved={!!savedProgress[s.id]} />)}
         </div>
-        {filtered.length===0&&<p style={{textAlign:"center",color:C.textMuted,padding:40}}>Không tìm thấy truyện</p>}
+        {filtered.length===0&&<p style={{textAlign:"center",color:C.textMuted,padding:40,fontFamily:"'Noto Serif Display',serif"}}>Không tìm thấy truyện</p>}
       </div>
     </>
   );
@@ -2028,7 +2054,7 @@ function claimDailyBonus() {
 // ═══════════════════════════════════════════════════════
 function DailyBonusModal({ bonus, streak, onClose }) {
   return (
-    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20 }} onClick={onClose}>
+    <div style={{ position:"fixed",inset:0,background:"rgba(42,31,20,0.6)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20 }} onClick={onClose}>
       <div onClick={e=>e.stopPropagation()} style={{ background:C.bg2,border:`1px solid ${C.gold}40`,borderRadius:20,maxWidth:380,width:"100%",padding:"36px 28px",textAlign:"center",position:"relative",overflow:"hidden" }}>
         {/* Glow effect */}
         <div style={{ position:"absolute",inset:0,background:`radial-gradient(circle at 50% 30%,${C.gold}15 0%,transparent 60%)`,pointerEvents:"none" }} />
@@ -2077,7 +2103,7 @@ function DailyBonusModal({ bonus, streak, onClose }) {
 
           <button onClick={onClose} style={{
             width:"100%",background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,
-            border:"none",color:"#111",padding:"14px",borderRadius:12,
+            border:"none",color:"#f5efe3",padding:"14px",borderRadius:12,
             fontSize:16,fontWeight:700,cursor:"pointer",
           }}>🎉 Nhận xu & Tiếp tục</button>
         </div>
@@ -2158,7 +2184,7 @@ export default function App() {
 
   return (
     <div style={{ minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'Inter',sans-serif" }}>
-      <style>{`@keyframes dotBounce{0%,100%{transform:translateY(0);opacity:.3}50%{transform:translateY(-4px);opacity:1}} button:hover{filter:brightness(1.08)}`}</style>
+      <style>{`@keyframes dotBounce{0%,100%{transform:translateY(0);opacity:.3}50%{transform:translateY(-4px);opacity:1}} button:hover{filter:brightness(0.96)}`}</style>
       
       {/* Daily Bonus Modal */}
       {dailyBonusInfo && <DailyBonusModal bonus={dailyBonusInfo.bonus} streak={dailyBonusInfo.streak} onClose={()=>setDailyBonusInfo(null)} />}
