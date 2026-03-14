@@ -257,7 +257,7 @@ function Dropdown({ user, xu, setPage, onLogout }) {
         <Item icon="💰" label="Nạp xu" onClick={()=>setPage("topup")} />
         <Item icon="👥" label="Giới thiệu nhận xu" onClick={()=>setPage("referral")} />
         <Item icon="🎯" label="Nhiệm vụ nhận xu" badge={LS("tai-mclaim-"+getTodayStr(),[]).length<5?"!":null} onClick={()=>setPage("missions")} />
-        <Item icon="🔔" label="Thông báo" badge={(()=>{const r=LS("tai-notifRead",[]);const c=5-r.length;return c>0?c:null;})().toString()||null} onClick={()=>setPage("notif")} />
+        <Item icon="🔔" label="Thông báo" badge={(()=>{const r=LS("tai-notifRead",[]);const c=5-r.length;return c>0?String(c):null;})()} onClick={()=>setPage("notif")} />
       </Sec>
       <Sec title="Kho đồ & Cửa hàng">
         <Item icon="🏪" label="Cửa hàng" onClick={()=>setPage("shop")} />
