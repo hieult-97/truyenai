@@ -205,22 +205,31 @@ async function callAI(messages) {
   // Format OpenAI-compatible cho Groq
   const groqMsgs = [{ role:"system", content: SYSTEM_PROMPT }, ...trimmed];
 
-  const doCall = async (msgs) => {
-    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type":"application/json", "Authorization":"Bearer " + apiKey },
-      body: JSON.stringify({ model:"llama-3.3-70b-versatile", messages: msgs, max_tokens:1024, temperature:0.9 }),
-    });
-    if (r.ok) {
-      const d = await r.json();
-      return d.choices?.[0]?.message?.content || null;
+  const doCall = async (msgs, retries = 3) => {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "Authorization":"Bearer " + apiKey },
+        body: JSON.stringify({ model:"llama-3.3-70b-versatile", messages: msgs, max_tokens:1024, temperature:0.9 }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        return d.choices?.[0]?.message?.content || null;
+      }
+      if (r.status === 429 && attempt < retries) {
+        const wait = (attempt + 1) * 5;
+        console.log(`Rate limited, retry ${attempt+1}/${retries} in ${wait}s...`);
+        await new Promise(res => setTimeout(res, wait * 1000));
+        continue;
+      }
+      let errMsg = "";
+      try { const eb = await r.json(); errMsg = eb.error?.message || ""; } catch(e) {}
+      console.error("Groq", r.status, errMsg);
+      if (r.status === 401) return "⚠ API Key không hợp lệ.";
+      if (r.status === 429) return "⚠ Đang chờ API... thử lại sau 30 giây.";
+      if (r.status === 413) return null;
+      return null;
     }
-    let errMsg = "";
-    try { const eb = await r.json(); errMsg = eb.error?.message || JSON.stringify(eb).slice(0,300); } catch(e) {}
-    console.error("Groq", r.status, errMsg);
-    if (r.status === 401) return "⚠ API Key không hợp lệ.";
-    if (r.status === 429) return "⚠ Hết lượt (30/phút). Đợi 1 phút.";
-    if (r.status === 413) return null; // Too large, will retry shorter
     return null;
   };
 
@@ -874,16 +883,19 @@ function AdminPanel() {
     }
   };
 
-  const generateTokens = () => {
+  const generateTokens = async () => {
     const arr = [];
     for (let i=0; i<newCount; i++) {
-      arr.push({ code:"TAI-"+Math.random().toString(36).substring(2,8).toUpperCase()+"-"+Date.now().toString(36).slice(-4).toUpperCase(), xu:newXu, used:false, createdAt:Date.now() });
+      const t = { code:"TAI-"+Math.random().toString(36).substring(2,8).toUpperCase()+"-"+Date.now().toString(36).slice(-4).toUpperCase(), xu:newXu, used:false, createdAt:Date.now() };
+      arr.push(t);
+      await fbSet("tokens/" + t.code, t);
     }
     const all = [...tokens,...arr]; setTokens(all); LSSet("tai-tokens",all);
   };
 
-  const deleteToken = (code) => {
+  const deleteToken = async (code) => {
     const f = tokens.filter(t=>t.code!==code); setTokens(f); LSSet("tai-tokens",f);
+    await fbSet("tokens/" + code, null);
   };
 
   const copyToken = (code) => {
@@ -1017,11 +1029,14 @@ const XU_PACKAGES = [
 ];
 
 function TopUpPage({ xu, onAddXu, user }) {
-  const [tab, setTab] = useState("topup");
+  const [tab, setTab] = useState("token");
   const [payingPkg, setPayingPkg] = useState(null);
   const [bank, setBank] = useState(LS("tai-bank", { bankId:"", accountNo:"", accountName:"" }));
+  const [tokenCode, setTokenCode] = useState("");
+  const [tokenMsg, setTokenMsg] = useState("");
+  const [tokenLoading, setTokenLoading] = useState(false);
+  const [xuHistory, setXuHistory] = useState(LS("tai-xu-history",[]));
 
-  // Load bank config from Firebase
   useEffect(() => {
     (async () => {
       const fbBank = await fbGet("config/bank");
@@ -1030,15 +1045,57 @@ function TopUpPage({ xu, onAddXu, user }) {
   }, []);
 
   const tabItems = [
-    { id:"profile2", label:"👤 Hồ sơ" },
-    { id:"history", label:"🕐 Lịch sử xu" },
+    { id:"token", label:"🎫 Nhập Token" },
     { id:"topup", label:"💰 Nạp xu" },
-    { id:"referral2", label:"🎁 Giới thiệu nhận xu" },
+    { id:"history", label:"🕐 Lịch sử" },
   ];
+
+  // Nhập token để nhận xu
+  const redeemToken = async () => {
+    if (!tokenCode.trim()) { setTokenMsg("❌ Nhập mã token!"); return; }
+    setTokenLoading(true); setTokenMsg("");
+    const code = tokenCode.trim().toUpperCase();
+    // Kiểm tra token ở Firebase
+    const fbToken = await fbGet("tokens/" + code);
+    if (!fbToken) {
+      // Fallback: kiểm tra localStorage (cùng máy admin)
+      const localTokens = LS("tai-tokens", []);
+      const local = localTokens.find(t => t.code === code && !t.used);
+      if (!local) { setTokenMsg("❌ Token không tồn tại hoặc đã sử dụng."); setTokenLoading(false); return; }
+      local.used = true; local.usedBy = user?.email; local.usedAt = Date.now();
+      LSSet("tai-tokens", localTokens);
+      await fbSet("tokens/" + code, local);
+      onAddXu(local.xu);
+      addXuHistory("token", local.xu, "Nhập token " + code);
+      setTokenMsg(`✅ Nhận ${local.xu} xu từ token ${code}!`);
+      setTokenCode("");
+      setTokenLoading(false);
+      return;
+    }
+    if (fbToken.used) { setTokenMsg("❌ Token đã được sử dụng bởi " + (fbToken.usedBy||"ai đó") + "."); setTokenLoading(false); return; }
+    // Sử dụng token
+    fbToken.used = true; fbToken.usedBy = user?.email; fbToken.usedAt = Date.now();
+    await fbSet("tokens/" + code, fbToken);
+    onAddXu(fbToken.xu);
+    addXuHistory("token", fbToken.xu, "Nhập token " + code);
+    setTokenMsg(`✅ Nhận ${fbToken.xu} xu từ token ${code}!`);
+    setTokenCode("");
+    setTokenLoading(false);
+  };
+
+  const addXuHistory = (type, amount, desc) => {
+    const entry = { type, amount, desc, time: Date.now() };
+    const h = [entry, ...xuHistory].slice(0, 50);
+    setXuHistory(h); LSSet("tai-xu-history", h);
+    // Cập nhật tổng xu đã dùng lên Firebase cho xếp hạng
+    const emailKey = user?.email?.replace(/[.#$\[\]]/g,"_");
+    if (emailKey) fbUpdate("users/" + emailKey, { xu: xu + amount, totalXuEarned: (LS("tai-total-earned",0)) + (amount > 0 ? amount : 0) });
+    if (amount > 0) { const t = LS("tai-total-earned",0) + amount; LSSet("tai-total-earned", t); }
+  };
 
   const handlePay = (pkg) => {
     if (!bank.accountNo) {
-      alert("Chức năng nạp xu chưa sẵn sàng. Vui lòng liên hệ Admin để được hỗ trợ!");
+      alert("Chức năng nạp xu chưa sẵn sàng. Vui lòng liên hệ Admin!");
       return;
     }
     setPayingPkg(pkg);
@@ -1056,6 +1113,35 @@ function TopUpPage({ xu, onAddXu, user }) {
           <button key={t.id} onClick={()=>setTab(t.id)} style={{ background:"transparent",border:"none",borderBottom:tab===t.id?`2px solid ${C.gold}`:"2px solid transparent",color:tab===t.id?C.gold:C.textDim,padding:"10px 16px",fontSize:13,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap" }}>{t.label}</button>
         ))}
       </div>
+
+      {/* Tab: Nhập Token */}
+      {tab==="token" && (
+        <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:24 }}>
+          <h3 style={{ fontFamily:"'Noto Serif',serif",fontSize:18,fontWeight:700,color:C.text,marginBottom:4 }}>🎫 Nhập mã Token</h3>
+          <p style={{ color:C.textDim,fontSize:13,marginBottom:16 }}>Nhập mã token từ Admin để nhận xu miễn phí</p>
+          <div style={{ display:"flex",gap:8,marginBottom:12 }}>
+            <input value={tokenCode} onChange={e=>setTokenCode(e.target.value.toUpperCase())} placeholder="VD: TAI-ABC123-XY7Z" onKeyDown={e=>e.key==="Enter"&&redeemToken()} style={{ flex:1,background:C.bg3,border:`1px solid ${C.border}`,borderRadius:8,padding:"12px 14px",color:C.text,fontSize:15,fontFamily:"monospace",outline:"none",letterSpacing:1 }} />
+            <button onClick={redeemToken} disabled={tokenLoading} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#f5efe3",padding:"12px 24px",borderRadius:8,fontSize:14,fontWeight:700,cursor:tokenLoading?"wait":"pointer",opacity:tokenLoading?0.6:1 }}>{tokenLoading?"⏳":"✨ Đổi xu"}</button>
+          </div>
+          {tokenMsg && <div style={{ padding:"10px 14px",borderRadius:8,background:tokenMsg.includes("✅")?`${C.green}10`:`${C.red}10`,border:`1px solid ${tokenMsg.includes("✅")?C.green+"30":C.red+"30"}`,color:tokenMsg.includes("✅")?C.green:C.red,fontSize:13,fontWeight:600 }}>{tokenMsg}</div>}
+
+          <div style={{ marginTop:24,padding:"16px",background:C.bg3,borderRadius:10 }}>
+            <div style={{ fontSize:13,fontWeight:700,color:C.text,marginBottom:8 }}>💡 Cách nhận Token</div>
+            <div style={{ fontSize:12,color:C.textDim,lineHeight:1.8 }}>
+              <div>• Liên hệ Admin để mua hoặc nhận token miễn phí</div>
+              <div>• Token có dạng: <code style={{color:C.gold}}>TAI-XXXXXX-YYYY</code></div>
+              <div>• Mỗi token chỉ dùng được 1 lần</div>
+              <div>• Xu được cộng ngay lập tức sau khi nhập</div>
+            </div>
+          </div>
+
+          {/* Xu hiện có */}
+          <div style={{ marginTop:20,background:`${C.gold}08`,border:`1px solid ${C.gold}20`,borderRadius:12,padding:"16px 20px",textAlign:"center" }}>
+            <div style={{ fontSize:12,color:C.textDim }}>Xu hiện có</div>
+            <div style={{ fontSize:32,fontWeight:800,color:C.gold }}>{fmtNum(xu)}</div>
+          </div>
+        </div>
+      )}
 
       {/* Tab: Nạp xu */}
       {tab==="topup" && (
@@ -1186,49 +1272,28 @@ function TopUpPage({ xu, onAddXu, user }) {
         </>
       )}
 
-      {/* Tab: Hồ sơ */}
-      {tab==="profile2" && (
-        <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:24 }}>
-          <div style={{ display:"flex",alignItems:"center",gap:16,marginBottom:20 }}>
-            <div style={{ width:60,height:60,borderRadius:"50%",background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,color:"#f5efe3" }}>👤</div>
-            <div>
-              <div style={{ fontSize:20,fontWeight:700,color:C.text }}>{user?.name}</div>
-              <div style={{ fontSize:13,color:C.textDim }}>Vai trò: {user?.isAdmin?"Admin":"Người chơi"}</div>
-            </div>
-          </div>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-            <div style={{ background:C.bg3,borderRadius:10,padding:16,textAlign:"center" }}>
-              <div style={{ fontSize:24,fontWeight:800,color:C.gold }}>{xu}</div>
-              <div style={{ fontSize:12,color:C.textDim }}>Xu hiện có</div>
-            </div>
-            <div style={{ background:C.bg3,borderRadius:10,padding:16,textAlign:"center" }}>
-              <div style={{ fontSize:24,fontWeight:800,color:C.text }}>{Object.keys(LS("tai-progress",{})).length}</div>
-              <div style={{ fontSize:12,color:C.textDim }}>Truyện đang đọc</div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Tab: Lịch sử xu */}
       {tab==="history" && (
         <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:24 }}>
           <h3 style={{ color:C.text,fontSize:16,fontWeight:700,marginBottom:16 }}>Lịch sử giao dịch xu</h3>
-          <div style={{ textAlign:"center",padding:40,color:C.textMuted,fontSize:14 }}>
-            <div style={{ fontSize:40,marginBottom:8 }}>📋</div>
-            Lịch sử giao dịch sẽ hiển thị tại đây
-          </div>
-        </div>
-      )}
-
-      {/* Tab: Giới thiệu */}
-      {tab==="referral2" && (
-        <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:24 }}>
-          <h3 style={{ color:C.text,fontSize:16,fontWeight:700,marginBottom:8 }}>🎁 Giới thiệu nhận xu</h3>
-          <p style={{ color:C.textDim,fontSize:13,lineHeight:1.6 }}>Chia sẻ link website cho bạn bè. Mỗi người đăng ký qua link của bạn, bạn nhận <strong style={{color:C.gold}}>5 xu</strong> miễn phí!</p>
-          <div style={{ marginTop:16,background:C.bg3,borderRadius:10,padding:"12px 16px",display:"flex",alignItems:"center",gap:8 }}>
-            <code style={{ flex:1,fontSize:12,color:C.gold,wordBreak:"break-all" }}>{window.location.origin}?ref={user?.name?.toLowerCase().replace(/\s/g,"")}</code>
-            <button onClick={()=>navigator.clipboard?.writeText(window.location.origin)} style={{ background:`${C.gold}20`,border:`1px solid ${C.gold}40`,color:C.gold,padding:"6px 12px",borderRadius:6,fontSize:11,cursor:"pointer",fontWeight:600,flexShrink:0 }}>📋 Copy</button>
-          </div>
+          {xuHistory.length === 0 ? (
+            <div style={{ textAlign:"center",padding:40,color:C.textMuted,fontSize:14 }}>
+              <div style={{ fontSize:40,marginBottom:8 }}>📋</div>Chưa có giao dịch nào
+            </div>
+          ) : (
+            <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
+              {xuHistory.map((h,i) => (
+                <div key={i} style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.bg3,borderRadius:8 }}>
+                  <span style={{ fontSize:18 }}>{h.amount>0?"💰":"💸"}</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13,fontWeight:600,color:C.text }}>{h.desc}</div>
+                    <div style={{ fontSize:11,color:C.textMuted }}>{new Date(h.time).toLocaleString("vi-VN")}</div>
+                  </div>
+                  <span style={{ fontSize:14,fontWeight:700,color:h.amount>0?C.green:C.red }}>{h.amount>0?"+":""}{h.amount} xu</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -2354,29 +2419,94 @@ function CollectionPage() {
 // RANKING PAGE
 // ═══════════════════════════════════════════════════════
 function RankingPage() {
+  const [tab, setTab] = useState("users");
+  const [fbUsers, setFbUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await fbGet("users");
+        if (data) {
+          const list = Object.values(data).filter(u => u.email && !u.banned);
+          list.sort((a,b) => (b.totalXuEarned||0) - (a.totalXuEarned||0));
+          setFbUsers(list);
+        }
+      } catch(e) {}
+      setLoadingUsers(false);
+    })();
+  }, []);
+
+  // Hạng theo xu đã kiếm
+  const getUserRankTitle = (earned) => {
+    if (earned >= 10000) return { title:"Đại Đế", color:"#8b2d2d", icon:"👑" };
+    if (earned >= 5000) return { title:"Thánh Giả", color:"#8b4513", icon:"⚡" };
+    if (earned >= 2000) return { title:"Vương Giả", color:"#a0522d", icon:"🔥" };
+    if (earned >= 1000) return { title:"Cao Thủ", color:"#4a6741", icon:"⚔" };
+    if (earned >= 500) return { title:"Chiến Binh", color:"#4a5568", icon:"🗡" };
+    if (earned >= 200) return { title:"Mạo Hiểm", color:"#6b4c6e", icon:"🏹" };
+    return { title:"Tân Thủ", color:C.textDim, icon:"🌱" };
+  };
+
   const sorted = [...STORIES].sort((a,b)=>b.plays-a.plays);
+
   return (
     <div style={{ padding:"28px 20px",maxWidth:700,margin:"0 auto" }}>
-      <h2 style={{ fontFamily:"'Noto Serif',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:24 }}>Bảng xếp hạng</h2>
-      <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
-        {sorted.map((s,i)=>{
-          const medal = i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`;
-          return (
-            <div key={s.id} style={{ background:C.bg2,border:`1px solid ${i<3?C.gold+"30":C.border}`,borderRadius:12,padding:"14px 18px",display:"flex",alignItems:"center",gap:14 }}>
-              <div style={{ width:36,textAlign:"center",fontSize:i<3?22:14,fontWeight:700,color:i<3?C.gold:C.textDim }}>{medal}</div>
-              <span style={{ fontSize:24 }}>{s.icon}</span>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{ fontSize:14,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{s.title}</div>
-                <div style={{ display:"flex",gap:4,marginTop:3,flexWrap:"wrap" }}>{s.tags.slice(0,2).map(t=><Tag key={t} name={t}/>)}</div>
-              </div>
-              <div style={{ textAlign:"right",flexShrink:0 }}>
-                <div style={{ fontSize:14,fontWeight:700,color:C.gold }}>👥 {s.plays}</div>
-                <div style={{ fontSize:11,color:C.textDim }}>♡ {s.likes}</div>
-              </div>
-            </div>
-          );
-        })}
+      <h2 style={{ fontFamily:"'Noto Serif',serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:20 }}>Bảng xếp hạng</h2>
+      <div style={{ display:"flex",gap:6,marginBottom:20 }}>
+        <button onClick={()=>setTab("users")} style={{ padding:"8px 20px",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer",background:tab==="users"?C.accent+"15":"transparent",border:tab==="users"?`1px solid ${C.accent}40`:`1px solid ${C.border}`,color:tab==="users"?C.accent:C.textDim }}>👥 Người chơi</button>
+        <button onClick={()=>setTab("stories")} style={{ padding:"8px 20px",borderRadius:6,fontSize:13,fontWeight:600,cursor:"pointer",background:tab==="stories"?C.accent+"15":"transparent",border:tab==="stories"?`1px solid ${C.accent}40`:`1px solid ${C.border}`,color:tab==="stories"?C.accent:C.textDim }}>📖 Truyện</button>
       </div>
+
+      {/* User Rankings */}
+      {tab==="users" && (
+        <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+          {loadingUsers && <p style={{textAlign:"center",color:C.textMuted,padding:20}}>Đang tải...</p>}
+          {!loadingUsers && fbUsers.length === 0 && <p style={{textAlign:"center",color:C.textMuted,padding:40}}>Chưa có dữ liệu xếp hạng</p>}
+          {fbUsers.slice(0,50).map((u,i) => {
+            const medal = i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`;
+            const rank = getUserRankTitle(u.totalXuEarned||0);
+            const earned = u.totalXuEarned || 0;
+            return (
+              <div key={u.email} style={{ background:C.bg2,border:`1px solid ${i<3?C.gold+"30":C.border}`,borderRadius:12,padding:"14px 18px",display:"flex",alignItems:"center",gap:12 }}>
+                <div style={{ width:36,textAlign:"center",fontSize:i<3?22:14,fontWeight:700,color:i<3?C.gold:C.textDim }}>{medal}</div>
+                <div style={{ width:36,height:36,borderRadius:"50%",background:`linear-gradient(135deg,${rank.color}30,${rank.color}10)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>{rank.icon}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{ fontSize:14,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{u.name || "Ẩn danh"}</div>
+                  <div style={{ fontSize:11,color:rank.color,fontWeight:600 }}>{rank.title}</div>
+                </div>
+                <div style={{ textAlign:"right",flexShrink:0 }}>
+                  <div style={{ fontSize:14,fontWeight:700,color:C.gold }}>{earned.toLocaleString("vi-VN")} xu</div>
+                  <div style={{ fontSize:10,color:C.textDim }}>Xu: {(u.xu||0).toLocaleString("vi-VN")}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Story Rankings */}
+      {tab==="stories" && (
+        <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+          {sorted.map((s,i)=>{
+            const medal = i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`;
+            return (
+              <div key={s.id} style={{ background:C.bg2,border:`1px solid ${i<3?C.gold+"30":C.border}`,borderRadius:12,padding:"14px 18px",display:"flex",alignItems:"center",gap:14 }}>
+                <div style={{ width:36,textAlign:"center",fontSize:i<3?22:14,fontWeight:700,color:i<3?C.gold:C.textDim }}>{medal}</div>
+                <span style={{ fontSize:24 }}>{s.icon}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{ fontSize:14,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{s.title}</div>
+                  <div style={{ display:"flex",gap:4,marginTop:3,flexWrap:"wrap" }}>{s.tags.slice(0,2).map(t=><Tag key={t} name={t}/>)}</div>
+                </div>
+                <div style={{ textAlign:"right",flexShrink:0 }}>
+                  <div style={{ fontSize:14,fontWeight:700,color:C.gold }}>👥 {s.plays}</div>
+                  <div style={{ fontSize:11,color:C.textDim }}>♡ {s.likes}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -2601,8 +2731,26 @@ export default function App() {
     }
   };
   const handleLogout = () => { setUser(null); LSSet("tai-user",null); setPage("home"); };
-  const spendXu = (n) => { const v=Math.max(0,xu-n); setXu(v); LSSet("tai-xu",v); };
-  const addXu = (n) => { const v=xu+n; setXu(v); LSSet("tai-xu",v); alert(`✅ Nạp ${n} xu thành công!`); };
+  const spendXu = (n) => {
+    const v=Math.max(0,xu-n); setXu(v); LSSet("tai-xu",v);
+    // Log history
+    const h = [{ type:"spend", amount:-n, desc:`Tiêu ${n} xu`, time:Date.now() }, ...LS("tai-xu-history",[])].slice(0,50);
+    LSSet("tai-xu-history", h);
+    // Sync Firebase
+    const ek = user?.email?.replace(/[.#$\[\]]/g,"_");
+    if (ek) fbUpdate("users/" + ek, { xu: v });
+  };
+  const addXu = (n) => {
+    const v=xu+n; setXu(v); LSSet("tai-xu",v);
+    const totalEarned = LS("tai-total-earned",0) + n; LSSet("tai-total-earned", totalEarned);
+    // Log history
+    const h = [{ type:"earn", amount:n, desc:`Nạp ${n} xu`, time:Date.now() }, ...LS("tai-xu-history",[])].slice(0,50);
+    LSSet("tai-xu-history", h);
+    // Sync Firebase
+    const ek = user?.email?.replace(/[.#$\[\]]/g,"_");
+    if (ek) fbUpdate("users/" + ek, { xu: v, totalXuEarned: totalEarned });
+    alert(`✅ Nạp ${n} xu thành công!`);
+  };
   const saveProgress = useCallback((id,data)=>{
     setSavedProgress(p=>{const n={...p,[id]:data}; LSSet("tai-progress",n); return n;});
   },[]);
