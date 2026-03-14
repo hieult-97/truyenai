@@ -182,7 +182,7 @@ const SYSTEM_PROMPT = `Bạn là nhà văn tiểu thuyết tương tác Việt N
 ---END---
 KHÔNG viết lựa chọn chung chung. Mỗi lựa chọn dẫn đến diễn biến khác nhau.`;
 
-// Cloudflare Workers AI — 10.000 req/ngày, FREE
+// Groq API — Llama 3.3 70B, cực nhanh, miễn phí
 async function callAI(messages) {
   const clean = messages.filter(m => m.content && !String(m.content).startsWith("⚠") && !String(m.content).startsWith("Lỗi"));
   const fixed = [];
@@ -196,64 +196,68 @@ async function callAI(messages) {
   }
   const trimmed = fixed.length > 12 ? [fixed[0], ...fixed.slice(-11)] : fixed;
 
-  // Load config: "accountId|apiToken" stored in tai-apikey
-  let cfgStr = LS("tai-apikey", "");
-  if (!cfgStr) {
-    try { const fbKey = await fbGet("config/apikey"); if (fbKey) { cfgStr = fbKey; LSSet("tai-apikey", fbKey); } } catch(e) {}
+  let apiKey = LS("tai-apikey", "");
+  if (!apiKey) {
+    try { const fbKey = await fbGet("config/apikey"); if (fbKey) { apiKey = fbKey; LSSet("tai-apikey", fbKey); } } catch(e) {}
   }
-  if (!cfgStr || !cfgStr.includes("|")) return "⚠ Chưa có API Key. Admin vào Admin Panel → nhập Cloudflare Account ID và API Token.";
+  if (!apiKey) return "⚠ Chưa có API Key. Admin vào Admin Panel → nhập Groq API Key.";
 
-  const [accountId, apiToken] = cfgStr.split("|");
-  if (!accountId || !apiToken) return "⚠ API Key sai format. Cần: AccountID|APIToken";
+  // Format OpenAI-compatible cho Groq
+  const groqMsgs = [{ role:"system", content: SYSTEM_PROMPT }, ...trimmed];
 
-  const cfMsgs = [{ role:"system", content: SYSTEM_PROMPT }, ...trimmed];
-  const CF_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
-  const CF_MODEL_BACKUP = "@cf/meta/llama-4-scout-17b-16e-instruct";
-
-  const doCall = async (msgs, model, retries = 2) => {
+  const doCall = async (msgs, retries = 3) => {
     for (let attempt = 0; attempt <= retries; attempt++) {
-      try {
-        const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`;
-        const r = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type":"application/json", "Authorization":"Bearer " + apiToken },
-          body: JSON.stringify({ model, messages: msgs, max_tokens:1024, temperature:0.9 }),
-        });
-        if (r.ok) {
-          const d = await r.json();
-          return d.choices?.[0]?.message?.content || d.result?.response || null;
-        }
-        if (r.status === 429 && attempt < retries) {
-          const wait = 5 + attempt * 5;
-          console.log(`CF rate limited, retry in ${wait}s...`);
-          await new Promise(res => setTimeout(res, wait * 1000));
-          continue;
-        }
-        let errMsg = "";
-        try { const eb = await r.json(); errMsg = JSON.stringify(eb.errors || eb).slice(0,300); } catch(e) {}
-        console.error("CF", r.status, errMsg);
-        if (r.status === 401 || r.status === 403) return "⚠ API Token không hợp lệ. Kiểm tra lại trong Admin Panel.";
-        return null;
-      } catch(e) { console.error("CF fetch error:", e); if (attempt < retries) continue; return null; }
+      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "Authorization":"Bearer " + apiKey },
+        body: JSON.stringify({ model:"llama-3.3-70b-versatile", messages: msgs, max_tokens:1024, temperature:0.9 }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        return d.choices?.[0]?.message?.content || null;
+      }
+      if (r.status === 429 && attempt < retries) {
+        // Đọc thời gian chờ từ header, fallback tăng dần
+        const retryAfter = r.headers.get("retry-after");
+        const wait = retryAfter ? Math.min(parseInt(retryAfter)||10, 60) : Math.min(10 + attempt * 10, 60);
+        console.log(`Rate limited, retry ${attempt+1}/${retries} in ${wait}s...`);
+        await new Promise(res => setTimeout(res, wait * 1000));
+        continue;
+      }
+      let errMsg = "";
+      try { const eb = await r.json(); errMsg = eb.error?.message || ""; } catch(e) {}
+      console.error("Groq", r.status, errMsg);
+      if (r.status === 401) return "⚠ API Key không hợp lệ.";
+      if (r.status === 429) return null; // Hết retry, sẽ thử lại ở tầng ngoài
+      if (r.status === 413) return null;
+      return null;
     }
     return null;
   };
 
-  // Lần 1: model chính + lịch sử đầy đủ
-  const r1 = await doCall(cfMsgs, CF_MODEL);
-  if (r1) return r1;
+  // Lần 1: gọi với lịch sử
+  try {
+    const r1 = await doCall(groqMsgs);
+    if (r1) return r1;
+  } catch(e) { console.error("Groq 1:", e); }
 
-  // Lần 2: model chính + message ngắn
-  const last = trimmed.filter(m => m.role === "user").pop();
-  const shortMsgs = [{ role:"system", content:SYSTEM_PROMPT }, { role:"user", content: last?.content || "Viết tiếp." }];
-  const r2 = await doCall(shortMsgs, CF_MODEL);
-  if (r2) return r2;
+  // Lần 2: chỉ message cuối
+  try {
+    const last = trimmed.filter(m => m.role === "user").pop();
+    const r2 = await doCall([{ role:"system", content:SYSTEM_PROMPT }, { role:"user", content: last?.content || "Viết tiếp." }]);
+    if (r2) return r2;
+  } catch(e) { console.error("Groq 2:", e); }
 
-  // Lần 3: model backup
-  const r3 = await doCall(shortMsgs, CF_MODEL_BACKUP);
-  if (r3) return r3;
+  // Lần 3: đợi thêm 30s rồi thử lần cuối
+  try {
+    console.log("Final retry after 30s cooldown...");
+    await new Promise(res => setTimeout(res, 30000));
+    const last = trimmed.filter(m => m.role === "user").pop();
+    const r3 = await doCall([{ role:"system", content:SYSTEM_PROMPT }, { role:"user", content: last?.content || "Viết tiếp." }], 1);
+    if (r3) return r3;
+  } catch(e) { console.error("Groq 3:", e); }
 
-  return "⚠ API lỗi. Thử lại sau vài giây.";
+  return "⚠ API đang quá tải. Vui lòng đợi 1-2 phút rồi bấm lại lựa chọn.";
 }
 
 function parseResponse(text) {
@@ -916,29 +920,26 @@ function AdminPanel() {
     <div style={{ padding:"28px 20px",maxWidth:900,margin:"0 auto" }}>
       <h2 style={{ fontFamily:"'Noto Serif',serif",fontSize:26,fontWeight:700,color:C.gold,marginBottom:24 }}>🔑 Admin Panel</h2>
 
-      {/* API Key Config — Cloudflare Workers AI */}
+      {/* API Key Config */}
       <div style={{ background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:20,marginBottom:20 }}>
-        <h3 style={{ color:C.text,fontSize:16,fontWeight:700,marginBottom:4 }}>⚙️ Cloudflare Workers AI (Miễn phí 10.000 req/ngày)</h3>
-        <p style={{ color:C.textMuted,fontSize:11,marginBottom:12 }}>Bắt buộc để AI viết truyện. Cloudflare miễn phí, nhiều model, ổn định.</p>
+        <h3 style={{ color:C.text,fontSize:16,fontWeight:700,marginBottom:4 }}>⚙️ Cấu hình API Key (Groq — Miễn phí, cực nhanh)</h3>
+        <p style={{ color:C.textMuted,fontSize:11,marginBottom:12 }}>Bắt buộc để AI viết truyện. Groq miễn phí 30 request/phút, trả kết quả dưới 1 giây.</p>
         
         <div style={{ background:C.bg3,borderRadius:10,padding:"14px 16px",marginBottom:14,fontSize:12,color:C.textDim,lineHeight:1.8 }}>
-          <div style={{fontWeight:700,color:C.gold,marginBottom:4,fontSize:13}}>📋 Cách lấy (MIỄN PHÍ, 3 phút):</div>
-          <div>1️⃣ Vào <span style={{color:C.gold,fontWeight:600}}>dash.cloudflare.com/sign-up</span> → đăng ký (miễn phí)</div>
-          <div>2️⃣ Vào dashboard → góc phải thanh URL có <span style={{color:C.gold,fontWeight:600}}>Account ID</span> → copy</div>
-          <div>3️⃣ Vào <span style={{color:C.gold,fontWeight:600}}>dash.cloudflare.com/profile/api-tokens</span></div>
-          <div>4️⃣ Bấm <span style={{color:C.gold,fontWeight:600}}>Create Token</span> → chọn <strong>Workers AI</strong> template → Create</div>
-          <div>5️⃣ Copy <span style={{color:C.gold,fontWeight:600}}>API Token</span> → dán vào ô bên dưới</div>
+          <div style={{fontWeight:700,color:C.gold,marginBottom:4,fontSize:13}}>📋 Cách lấy API Key (MIỄN PHÍ, 1 phút):</div>
+          <div>1️⃣ Truy cập <span style={{color:C.gold,fontWeight:600}}>console.groq.com/keys</span></div>
+          <div>2️⃣ Đăng nhập bằng Google hoặc GitHub</div>
+          <div>3️⃣ Bấm <span style={{color:C.gold,fontWeight:600}}>Create API Key</span> → đặt tên bất kỳ</div>
+          <div>4️⃣ Copy key (bắt đầu bằng <code style={{background:C.accent+"10",padding:"1px 6px",borderRadius:4,color:C.gold}}>gsk_...</code>)</div>
+          <div>5️⃣ Dán vào ô bên dưới → bấm 💾 Lưu</div>
         </div>
 
-        <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:10 }}>
-          <input type="text" value={apiKey.split("|")[0]||""} onChange={e=>setApiKey(e.target.value+"|"+(apiKey.split("|")[1]||""))} placeholder="Account ID (32 ký tự hex)" style={{...inputS,fontFamily:"monospace",fontSize:12}} />
-          <input type={showKey?"text":"password"} value={apiKey.split("|")[1]||""} onChange={e=>setApiKey((apiKey.split("|")[0]||"")+"|"+e.target.value)} placeholder="API Token" style={{...inputS,fontFamily:"monospace",fontSize:12}} />
-        </div>
         <div style={{ display:"flex",gap:8 }}>
-          <button onClick={()=>setShowKey(!showKey)} style={{...inputS,cursor:"pointer",color:C.textDim,border:`1px solid ${C.border}`,padding:"8px 12px" }}>{showKey?"🙈":"👁"}</button>
-          <button onClick={saveApiKey} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#f5efe3",padding:"8px 18px",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13,flex:1 }}>💾 Lưu</button>
+          <input type={showKey?"text":"password"} value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="gsk_..." style={{...inputS,flex:1,fontFamily:"monospace",fontSize:12}} />
+          <button onClick={()=>setShowKey(!showKey)} style={{...inputS,cursor:"pointer",color:C.textDim,border:`1px solid ${C.border}` }}>{showKey?"🙈":"👁"}</button>
+          <button onClick={saveApiKey} style={{ background:`linear-gradient(135deg,${C.gold},${C.goldDark})`,border:"none",color:"#f5efe3",padding:"8px 18px",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13 }}>💾 Lưu</button>
         </div>
-        {apiKey && apiKey.includes("|") && apiKey.split("|")[1] && <p style={{ color:C.green,fontSize:11,marginTop:8 }}>✅ Cloudflare Workers AI đã cấu hình — 10.000 req/ngày miễn phí!</p>}
+        {apiKey && <p style={{ color:C.green,fontSize:11,marginTop:8 }}>✅ Groq API Key đã cấu hình — Miễn phí, cực nhanh!</p>}
       </div>
 
       {/* Bank Config for QR Payment */}
